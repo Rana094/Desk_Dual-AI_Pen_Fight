@@ -1,9 +1,23 @@
-import { impactPlaybackRate, replayWindow } from "./playback.js";
+import { gameConfig, CONFIG_LIMITS } from "../../config/config.ts";
+import {
+  impactPlaybackRate,
+  replayWindow,
+  interpolateRecording,
+} from "./playback.js";
 import { handAngle } from "@/features/character/motion.js";
 import * as THREE from "three";
 import { createScope } from "./scope.js";
-import { buildMatchOptions } from "./modes.js";
+import { buildMatchOptions, penColorFor } from "./modes.js";
 import { createBenchmarkRunner } from "@/game/ai/benchmark.js";
+import { roundOutcome } from "../physics/outcome.js";
+import {
+  CAMERA_PRESETS,
+  cameraAngle,
+  deskCamera,
+  deskFov,
+  interpolateOrbit,
+  overviewCamera,
+} from "./camera.js";
 
 export function createController({
   engine: PF,
@@ -16,15 +30,21 @@ export function createController({
     clamp = PF.clamp,
     scope = createScope();
   let disposed = false,
-    labDirty = true;
+    labDirty = true,
+    hintRequest = 0;
   const benchmark = createBenchmarkRunner(PF, ui);
-  const viewport = () => ({
-    width: canvas.clientWidth || innerWidth,
-    height: canvas.clientHeight || innerHeight,
-  });
+  const size = { width: 1, height: 1 };
+  function viewport() {
+    if (canvas.clientWidth > 0 && canvas.clientHeight > 0) {
+      size.width = canvas.clientWidth;
+      size.height = canvas.clientHeight;
+    }
+    return size;
+  }
   const isMobile =
     /Android|iPhone|iPad|Mobi/i.test(navigator.userAgent) ||
-    Math.min(viewport().width, viewport().height) < 600;
+    Math.min(viewport().width, viewport().height) <
+      gameConfig.graphics.mobileBreakpoint;
   const G = {
     mode: "menu",
     token: 0,
@@ -32,9 +52,12 @@ export function createController({
     state: null,
     scores: [0, 0],
     round: 1,
-    goal: 3,
+    goal: gameConfig.matches.versusGoal,
     names: ["Sabbir", "Bunty"],
-    pens: ["ball", "ball"],
+    pens: [
+      ui.get().preferences.pvp.pen1.pen,
+      ui.get().preferences.pvp.pen2.pen,
+    ],
     ai: [null, null],
     humans: [true, false],
     play: null,
@@ -50,6 +73,12 @@ export function createController({
     series: [0, 0],
     viewSide: 0,
     replaying: false,
+    cameraDrag: null,
+    touches: new Map(),
+    pinch: null,
+    gestureBlocked: false,
+    nativePinchZoom: null,
+    manualCamera: false,
   };
   const playRng = PF.rng(Date.now() & 0xffff);
   let clock = 0,
@@ -58,24 +87,63 @@ export function createController({
   /* ---------------------------------------------------------------- world */
   const cam = World.camera,
     students = World.students;
-  let SET = ui.get().settings;
+  let SET = ui.get().settings,
+    settingsApplied = false;
   function applySettings() {
-    SET = ui.get().settings;
+    const next = ui.get().settings,
+      qualityChanged = !settingsApplied || next.quality !== SET.quality;
+    if (next.follow && !SET.follow && !ui.get().cameraPinned)
+      G.manualCamera = false;
+    SET = next;
+    settingsApplied = true;
     Snd.setVolume(SET.vol);
     Snd.setAmbience(SET.amb);
     PF.setRealism(SET.real);
     PF.setFriction(SET.friction);
+    if (
+      G.mode !== "menu" &&
+      !G.play?.replay &&
+      !["react", "replay"].includes(G.camMode)
+    )
+      G.camMode = SET.follow ? "follow" : "game";
     const quality =
-      SET.quality === "auto" ? (isMobile ? "medium" : "high") : SET.quality;
-    if (World.quality !== quality) World.setQuality(quality);
+      SET.quality === "auto"
+        ? isMobile
+          ? gameConfig.graphics.autoMobile
+          : gameConfig.graphics.autoDesktop
+        : SET.quality;
+    if (qualityChanged && World.quality !== quality) World.setQuality(quality);
   }
   applySettings();
   const unsubscribe = ui.subscribe(() => {
     if (SET !== ui.get().settings) applySettings();
   });
+  let renderWidth = 0,
+    renderHeight = 0,
+    cameraReady = false;
   function resize() {
+    if (canvas.clientWidth <= 0 || canvas.clientHeight <= 0) return;
     const size = viewport();
+    if (size.width === renderWidth && size.height === renderHeight) return;
+    cancelAim();
+    cancelCameraDrag();
+    cancelTouchGesture();
+    if (
+      cameraReady &&
+      !ui.get().cameraPinned &&
+      C.angle.preset === "overview"
+    ) {
+      C.angle = {
+        ...overviewCamera(size.width / size.height),
+        zoom: C.angle.zoom,
+      };
+      C.pending = true;
+    }
     World.resize(size.width, size.height);
+    if (cameraReady && ui.get().cameraPinned && C.pinnedDeskView)
+      C.fov = deskFov(C.pos, C.look, size.width / size.height);
+    renderWidth = size.width;
+    renderHeight = size.height;
   }
   scope.listen(window, "resize", resize);
   resize();
@@ -95,9 +163,17 @@ export function createController({
   }
   const nextFrame = () => scope.nextFrame();
   function cancelAll() {
+    cancelCameraDrag();
+    cancelTouchGesture();
     G.token++;
+    Snd.reset();
+    clearHint();
     G.timers.splice(0).forEach((t) => t.res());
     if (G.input) {
+      if (G.input.active) {
+        G.input.active = false;
+        releasePointer(G.input);
+      }
       const r = G.input.res;
       G.input = null;
       r(null);
@@ -106,7 +182,7 @@ export function createController({
     G.play?.onEnd?.(true);
     G.play = null;
     G.replaying = false;
-    ui.set({ replaying: false });
+    ui.set({ replaying: false, hintReady: false });
     World.showAim(0, 0, 0, 0, false);
     World.showHints(null);
   }
@@ -121,51 +197,129 @@ export function createController({
     pos: new V3(0, 140, 120),
     look: new V3(0, 0, 0),
     fov: 42,
+    zoom: 1,
     orbit: 0,
     followDir: new V3(0, 0, 1),
     focus: new V3(),
     t: 0,
     who: 0,
+    targetPosition: new V3(),
+    targetLook: new V3(),
+    angle: ui.get().camera,
+    pending: false,
+    directTime: 0,
+    pinnedDeskView: false,
   };
+  cameraReady = true;
   function gameCam(tp, tl) {
-    const size = viewport(),
-      a = size.width / size.height,
-      portrait = a < 0.85,
-      fov = portrait ? 57 : 45,
-      el = ((portrait ? 68 : 53) * Math.PI) / 180,
-      th = Math.tan((fov * Math.PI) / 360);
-    const d =
-      Math.max(38 / (th * a), (50 * Math.sin(el) + 17) / th) *
-      (portrait ? 1.12 : 1.06);
-    const fl = G.viewSide ? -1 : 1;
-    tl.set(0, -2, (portrait ? -2 : -18) * fl);
-    tp.set(
-      Math.sin(clock * 0.15) * 3,
-      tl.y + Math.sin(el) * d,
-      tl.z + fl * Math.cos(el) * d,
+    const size = viewport();
+    return deskCamera(C.angle, size.width / size.height, tp, tl);
+  }
+  function canUseCameraControls() {
+    return (
+      !disposed &&
+      G.mode !== "menu" &&
+      !G.paused &&
+      !ui.get().end &&
+      !ui.get().menuVisible &&
+      !G.input?.active
     );
-    return fov;
+  }
+  function canAdjustCamera() {
+    return canUseCameraControls() && !ui.get().cameraPinned;
+  }
+  function setCameraPinned(pinned) {
+    if (
+      typeof pinned !== "boolean" ||
+      !canUseCameraControls() ||
+      ui.get().cameraPinned === pinned
+    )
+      return;
+    cancelCameraDrag();
+    cancelTouchGesture();
+    if (pinned) {
+      C.pinnedDeskView = G.manualCamera || G.camMode === "game";
+      G.manualCamera = true;
+      G.camMode = "game";
+      G.shake = 0;
+    } else {
+      G.manualCamera = !SET.follow;
+      G.camMode = SET.follow ? "follow" : "game";
+    }
+    ui.set({
+      cameraPinned: pinned,
+      ...(pinned && SET.follow ? { settings: { ...SET, follow: false } } : {}),
+    });
+  }
+  function setCameraAngle(
+    azimuth,
+    elevation,
+    preset = "custom",
+    direct = true,
+    zoom = C.angle.zoom,
+  ) {
+    if (
+      !canAdjustCamera() ||
+      !Number.isFinite(azimuth) ||
+      !Number.isFinite(elevation) ||
+      !Number.isFinite(zoom)
+    )
+      return;
+    const angle = cameraAngle(azimuth, elevation, preset, zoom);
+    if (
+      C.angle.azimuth === angle.azimuth &&
+      C.angle.elevation === angle.elevation &&
+      C.angle.zoom === angle.zoom &&
+      C.angle.preset === angle.preset &&
+      G.manualCamera
+    )
+      return;
+    C.angle = angle;
+    C.pending = true;
+    C.directTime = direct ? 0.18 : 0;
+    G.manualCamera = true;
+    G.camMode = "game";
+    if (SET.follow) ui.set({ settings: { ...SET, follow: false } });
+  }
+  function publishCamera() {
+    if (disposed || !C.pending) return;
+    C.pending = false;
+    ui.set({ camera: C.angle });
+  }
+  function cancelCameraDrag(event, keepCapture = false) {
+    const drag = G.cameraDrag;
+    if (!drag || (event && event.pointerId !== drag.pid)) return;
+    G.cameraDrag = null;
+    publishCamera();
+    if (!keepCapture) releasePointer(drag);
   }
   function penWorld(i) {
     const f = G.curFrame ? G.curFrame.p[i] : G.state && G.state.pens[i];
     return f ? new V3(f.x - 30, 0.8, f.y - 50) : new V3();
   }
   function updateCamera(dt) {
-    const tp = new V3(),
-      tl = new V3();
+    const tp = C.targetPosition,
+      tl = C.targetLook,
+      pinned = ui.get().cameraPinned && G.mode !== "menu";
     let tf = 42,
-      k = 3.2,
-      m = G.camMode;
-    if (m === "menu") {
+      k = C.directTime > 0 ? 24 : 6.5,
+      m = G.manualCamera && G.mode !== "menu" ? "game" : G.camMode;
+    if (m === "game" && SET.follow && !G.manualCamera && G.state) m = "follow";
+    if (pinned) {
+      // Retain the exact rendered pose, even halfway through an animation.
+      m = "pinned";
+      tf = C.fov;
+      G.shake = 0;
+    } else if (m === "menu") {
       const t = clock * 0.1;
       tl.set(0, 4, -6);
       tp.set(Math.sin(t) * 120, 70, Math.cos(t) * 120 * 0.8 + 20);
       tf = 40;
       k = 1.5;
-    } else if (m === "follow" && G.play) {
-      const who = G.play.who,
+    } else if (m === "follow" && G.state) {
+      const who = G.play?.who ?? G.state.turn,
         p = penWorld(who),
-        q = G.play.rec && G.play.frameVel;
+        q = G.play?.rec && G.play.frameVel;
       if (q) {
         const sp = Math.hypot(q.x, q.y);
         if (sp > 20) C.followDir.lerp(new V3(q.x / sp, 0, q.y / sp), 0.1);
@@ -199,20 +353,34 @@ export function createController({
       tf = 32;
       k = 3.5;
     } else tf = gameCam(tp, tl);
-    const e = 1 - Math.exp(-dt * k);
-    C.pos.lerp(tp, e);
-    C.look.lerp(tl, e);
-    C.fov += (tf - C.fov) * e;
+    // Keep the projection fixed while a player is pulling back to aim.
+    const e = G.input?.active || pinned ? 0 : 1 - Math.exp(-dt * k);
+    C.directTime = Math.max(0, C.directTime - dt);
+    const deskView = m === "game" || (m === "follow" && !G.state);
+    if (deskView) interpolateOrbit(C.pos, C.look, tp, tl, e);
+    else {
+      C.pos.lerp(tp, e);
+      C.look.lerp(tl, e);
+    }
+    if (deskView && !G.input?.active) {
+      const size = viewport();
+      C.fov = deskFov(C.pos, C.look, size.width / size.height);
+    } else C.fov += (tf - C.fov) * e;
+    C.zoom += ((deskView ? C.angle.zoom : 1) - C.zoom) * e;
     G.shake = Math.max(0, G.shake - dt * 2.4);
-    const sh = G.shake * 1.1;
+    const sh = G.input?.active || G.manualCamera ? 0 : G.shake * 1.1;
     cam.position.set(
       C.pos.x + (Math.random() - 0.5) * sh,
       C.pos.y + (Math.random() - 0.5) * sh,
       C.pos.z + (Math.random() - 0.5) * sh,
     );
     cam.lookAt(C.look);
-    if (Math.abs(cam.fov - C.fov) > 0.01) {
+    if (
+      Math.abs(cam.fov - C.fov) > 0.01 ||
+      Math.abs(cam.zoom - C.zoom) > 0.0001
+    ) {
       cam.fov = C.fov;
+      cam.zoom = C.zoom;
       cam.updateProjectionMatrix();
     }
     // Never remove the head to clear the view; a wider, higher camera keeps the desk playable.
@@ -224,32 +392,7 @@ export function createController({
   }
 
   /* ------------------------------------------------------------- playback */
-  const REC = 1 / 60;
-  function interp(rec, t) {
-    const f = t / REC,
-      i = Math.min(rec.length - 1, Math.floor(f)),
-      j = Math.min(rec.length - 1, i + 1),
-      u = f - i,
-      A = rec[i],
-      B = rec[j];
-    return {
-      t,
-      p: A.p.map((a, k) => {
-        const b = B.p[k];
-        return {
-          x: a.x + (b.x - a.x) * u,
-          y: a.y + (b.y - a.y) * u,
-          a: a.a + (b.a - a.a) * u,
-          z: a.z + (b.z - a.z) * u,
-          out: a.out,
-          outT: a.outT,
-          vx: a.vx,
-          vy: a.vy,
-          roll: a.roll + (b.roll - a.roll) * u,
-        };
-      }),
-    };
-  }
+  const REC = gameConfig.playback.recordInterval;
   function startPlay(res, who, opts) {
     opts = opts || {};
     return new Promise((resolve) => {
@@ -258,9 +401,27 @@ export function createController({
       const range = opts.replay
         ? replayWindow(res.events, fullDuration)
         : { start: 0, end: fullDuration };
-      const events = res.events.filter(
-        (e) => (e.type === "hit" || e.type === "out") && e.t >= range.start,
-      );
+      // Landings use simulation time, so pause, replay and AI speed stay in sync.
+      const events = res.events
+        .flatMap((event) =>
+          event.type === "out" &&
+          !res.events.some((e) => e.type === "landing" && e.who === event.who)
+            ? [
+                event,
+                {
+                  ...event,
+                  type: "landing",
+                  t: Math.min(fullDuration, event.t + 0.38),
+                },
+              ]
+            : event.type === "hit" ||
+                event.type === "out" ||
+                event.type === "landing"
+              ? [event]
+              : [],
+        )
+        .filter((event) => event.t >= range.start)
+        .sort((a, b) => a.t - b.t);
       const impact =
         opts.slow !== false && SET.slowmo && !opts.replay
           ? events.find((e) => e.type === "hit" && e.speed > 90)?.t
@@ -276,6 +437,7 @@ export function createController({
         speed: opts.speed || 1,
         replay: !!opts.replay,
         onEnd: (c) => {
+          Snd.stopMotion();
           G.play = null;
           G.curFrame = null;
           resolve(c);
@@ -284,18 +446,26 @@ export function createController({
       };
     });
   }
+  function soundPan(x, y) {
+    cam.updateMatrixWorld(true);
+    return clamp(new V3(x - 30, 1, y - 50).project(cam).x * 0.65, -0.8, 0.8);
+  }
   function updatePlay(dt) {
     const P = G.play;
     if (!P) return;
     const sp = impactPlaybackRate(P.t, P.impact, P.speed);
     P.t = Math.min(P.dur, P.t + dt * sp);
-    const fr = interp(P.rec, P.t);
+    const fr = interpolateRecording(P.rec, P.t);
+    if (!fr) return;
     G.curFrame = fr;
     P.frameVel = fr.p[P.who];
     while (P.ei < P.events.length && P.events[P.ei].t <= P.t) {
       const e = P.events[P.ei++];
       if (e.type === "hit") {
-        Snd.hit(e.speed);
+        const pen =
+          G.pens.find((kind) => kind === "heavy" || kind === "premium") ||
+          G.pens[P.who];
+        Snd.hit(e.speed, { pen, pan: soundPan(e.x, e.y) });
         G.shake = Math.max(G.shake, clamp(e.speed / 220, 0.1, 0.8));
         const w = P.who;
         if (e.speed > 60 && !P.replay) {
@@ -303,11 +473,18 @@ export function createController({
           students[1 - w].setEmotion("surprise", 1.2);
           students[w].setEmotion("smug", 1.4);
         }
-      } else if (e.type === "out") {
-        Snd.scratch(0.6);
-        scope.timeout(Snd.drop, 380);
+      } else if (e.type === "landing") {
+        Snd.drop({ pen: G.pens[e.who], pan: soundPan(e.x, e.y) });
       }
     }
+    Snd.motion(
+      fr.p.map((pen, i) => ({
+        speed: Math.hypot(pen.vx, pen.vy),
+        out: pen.out,
+        pen: G.pens[i],
+        pan: soundPan(pen.x, pen.y),
+      })),
+    );
     for (let i = 0; i < 2; i++) {
       const s = fr.p[i];
       World.setPen(i, s, P.t);
@@ -341,13 +518,16 @@ export function createController({
     let sumX = 0,
       sumY = 0,
       sumZ = 0;
-    for (let elapsed = 0; elapsed < limit; elapsed += 0.025) {
+    const started = clock;
+    for (;;) {
       chk(tok);
+      const elapsed = clock - started;
       const ex = x - arm.tip.x,
         ez = z - arm.tip.z,
         ey = height - arm.tip.y;
-      if (arm.ready && Math.hypot(ex, ez) < 1.6 && Math.abs(ey) < 1.5)
+      if (arm.ready && Math.hypot(ex, ez) < 0.2 && Math.abs(ey) < 0.15)
         return true;
+      if (elapsed >= limit) return false;
       // Calibrate small residual FK/constraint errors from the *rendered* index
       // pad; limits prevent corrections from dragging an unreachable limb away.
       if (elapsed > 0.05 && arm.ready) {
@@ -367,9 +547,8 @@ export function createController({
           sumY += dy;
         }
       }
-      await wait(0.025);
+      await wait(Math.min(0.025, limit - elapsed));
     }
-    return false;
   }
   async function flickAnim(i, act, contact, fromPull) {
     const S = students[i],
@@ -438,7 +617,7 @@ export function createController({
       "contact",
     );
     chk(tok);
-    await waitForTouch(S, contact, height, tok, 0.14);
+    await waitForTouch(S, contact, height, tok);
   }
   /* pull the playing hand back to the lap right away, so it is never over the table while the pen slides */
   function retract(i) {
@@ -454,19 +633,24 @@ export function createController({
   async function executeShot(who, act, contact, fromPull) {
     const tok = G.token,
       st = G.state;
-    ui.set({ tipVisible: false });
     await flickAnim(who, act, contact, fromPull);
     chk(tok);
-    Snd.flick(act.pow);
+    Snd.flick(act.pow, {
+      pen: G.pens[who],
+      pan: soundPan(contact.x, contact.y),
+    });
     const res = PF.shoot(st.pens, who, act, {
       record: REC,
       afterOut: 0.45,
-      maxT: 4.8,
+      maxT: gameConfig.physics.gameplaySimulationSeconds,
     });
     // A short vertical follow-through clears the pen instead of crossing its
     // barrel, then the arm returns to the lap while the result animates.
     const movingHand = students[who],
       followToken = G.token;
+    movingHand.goal = null;
+    movingHand.grabP = null;
+    movingHand.contactTarget = null;
     movingHand.to({ ty: movingHand.hand.ty + 5, curl: 0.27 }, 0.11).then(() => {
       if (!disposed && G.token === followToken) retract(who);
     });
@@ -487,10 +671,12 @@ export function createController({
     plane = new THREE.Plane(new V3(0, 1, 0), 0);
   function pointerTable(e) {
     const r = canvas.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return null;
     ndc.set(
       ((e.clientX - r.left) / r.width) * 2 - 1,
       (-(e.clientY - r.top) / r.height) * 2 + 1,
     );
+    cam.updateMatrixWorld(true);
     ray.setFromCamera(ndc, cam);
     const p = new V3();
     return ray.ray.intersectPlane(plane, p)
@@ -499,78 +685,187 @@ export function createController({
   }
   function humanAim(who) {
     return new Promise((res) => {
+      clearHint();
       G.input = { res, active: false, who: who || 0 };
       showBanner(null);
       ui.set({
-        tipVisible: SET.guide,
-        flickCorner: chooseFlickCorner(),
         hintAvailable: false,
+        hintReady: G.mode === "train" && who === 0,
       });
     });
   }
-  function chooseFlickCorner() {
-    const size = viewport(),
-      width = Math.min(280, Math.max(190, size.width * 0.42)),
-      height = Math.min(170, Math.max(130, size.height * 0.2)),
-      top = Math.min(190, Math.max(150, size.height * 0.18)),
-      bottom = Math.max(top + height + 20, size.height - height - 96),
-      margin = 12;
+  function screenPenHit(event) {
+    if (!G.state) return null;
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
     cam.updateMatrixWorld(true);
-    const penPoints = (G.state?.pens || [])
-      .map((pen) => new V3(pen.x - 30, 1, pen.y - 50).project(cam))
-      .filter((point) => point.z >= -1 && point.z <= 1)
-      .map((point) => ({
-        x: ((point.x + 1) * size.width) / 2,
-        y: ((1 - point.y) * size.height) / 2,
-      }));
-    if (!penPoints.length) return "bottom-left";
-
-    const candidates = [
-      { corner: "top-left", x: margin, y: top },
-      { corner: "top-right", x: size.width - width - margin, y: top },
-      { corner: "bottom-left", x: margin, y: bottom },
-      { corner: "bottom-right", x: size.width - width - margin, y: bottom },
-    ];
-    const clearance = (point, candidate) => {
-      const dx = Math.max(
-        candidate.x - point.x,
-        0,
-        point.x - candidate.x - width,
-      );
-      const dy = Math.max(
-        candidate.y - point.y,
-        0,
-        point.y - candidate.y - height,
-      );
-      return Math.hypot(dx, dy);
+    const project = (x, y, z) => {
+      const p = new V3(x - 30, y, z - 50).project(cam);
+      return {
+        x: rect.left + ((p.x + 1) * rect.width) / 2,
+        y: rect.top + ((1 - p.y) * rect.height) / 2,
+        depth: p.z,
+      };
     };
-    return candidates
-      .map((candidate) => ({
-        ...candidate,
-        score: Math.min(
-          ...penPoints.map((point) => clearance(point, candidate)),
-        ),
-      }))
-      .sort((a, b) => b.score - a.score)[0].corner;
+    let hit = null;
+    G.state.pens.forEach((base, who) => {
+      const pen = G.curFrame?.p[who] || base;
+      if (pen.out) return;
+      const r = PF.PENS[G.pens[who]].r,
+        ax = Math.cos(pen.a),
+        ay = Math.sin(pen.a);
+      const start = project(
+        pen.x - (ax * base.L) / 2,
+        (pen.z || 0) + r,
+        pen.y - (ay * base.L) / 2,
+      );
+      const end = project(
+        pen.x + (ax * base.L) / 2,
+        (pen.z || 0) + r,
+        pen.y + (ay * base.L) / 2,
+      );
+      if (
+        start.depth < -1 ||
+        start.depth > 1 ||
+        end.depth < -1 ||
+        end.depth > 1
+      )
+        return;
+      const dx = end.x - start.x,
+        dy = end.y - start.y;
+      const t = clamp(
+        ((event.clientX - start.x) * dx + (event.clientY - start.y) * dy) /
+          Math.max(1e-6, dx * dx + dy * dy),
+        0,
+        1,
+      );
+      const distance = Math.hypot(
+        event.clientX - start.x - dx * t,
+        event.clientY - start.y - dy * t,
+      );
+      const center = project(pen.x, (pen.z || 0) + r, pen.y);
+      const side = project(pen.x - ay * r, (pen.z || 0) + r, pen.y + ax * r);
+      const radius =
+        (event.pointerType === "touch"
+          ? gameConfig.input.penSafetyTouch
+          : gameConfig.input.penSafetyMouse) +
+        Math.hypot(side.x - center.x, side.y - center.y);
+      if (distance <= radius && (!hit || distance < hit.distance))
+        hit = { who, distance };
+    });
+    return hit;
   }
+  function cancelTouchGesture() {
+    const ids = [...G.touches.keys()];
+    G.touches.clear();
+    G.pinch = null;
+    G.gestureBlocked = false;
+    G.nativePinchZoom = null;
+    ids.forEach((pid) => releasePointer({ pid }));
+  }
+  function touchPair() {
+    return [...G.touches.values()].slice(0, 2);
+  }
+  function startPinch() {
+    const [a, b] = touchPair();
+    if (!a || !b) return;
+    cancelAim(null, G.touches.has(G.input?.pid));
+    cancelCameraDrag(null, G.touches.has(G.cameraDrag?.pid));
+    const distance = Math.hypot(a.x - b.x, a.y - b.y);
+    G.gestureBlocked = true;
+    G.pinch =
+      distance >= gameConfig.input.pinchMinDistance
+        ? { distance, zoom: C.angle.zoom }
+        : null;
+  }
+  function zoomGesture(zoom) {
+    if (!Number.isFinite(zoom)) return;
+    setCameraAngle(
+      C.angle.azimuth,
+      C.angle.elevation,
+      C.angle.preset,
+      true,
+      zoom,
+    );
+    publishCamera();
+  }
+  function finishTouch(event) {
+    if (!G.touches.has(event.pointerId)) return;
+    G.touches.delete(event.pointerId);
+    if (G.pinch) {
+      G.pinch = null;
+      G.gestureBlocked = true;
+    }
+    if (G.touches.size === 0) G.gestureBlocked = false;
+    const owned =
+      (G.input?.active && G.input.pid === event.pointerId) ||
+      G.cameraDrag?.pid === event.pointerId;
+    if (!owned) releasePointer({ pid: event.pointerId });
+  }
+  for (const type of ["pointerup", "pointercancel", "lostpointercapture"])
+    scope.listen(canvas, type, finishTouch);
   scope.listen(canvas, "pointerdown", (e) => {
     Snd.init();
-    const I = G.input;
-    if (!I || I.active || G.paused) return;
-    const p = pointerTable(e);
-    if (!p) return;
-    const pen = G.state.pens[I.who],
-      ax = Math.cos(pen.a),
-      ay = Math.sin(pen.a),
-      t = (p.x - pen.x) * ax + (p.y - pen.y) * ay,
-      tc = clamp(t, -pen.L / 2, pen.L / 2),
-      cx = pen.x + ax * tc,
+    if (e.pointerType === "touch") {
+      if (
+        disposed ||
+        G.mode === "menu" ||
+        G.paused ||
+        ui.get().end ||
+        ui.get().menuVisible
+      )
+        return;
+      if (!G.touches.has(e.pointerId) && G.touches.size >= 2) {
+        e.preventDefault();
+        return;
+      }
+      G.touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      try {
+        canvas.setPointerCapture(e.pointerId);
+      } catch {}
+      if (G.touches.size >= 2) {
+        if (!G.pinch) startPinch();
+        e.preventDefault();
+        return;
+      }
+      if (G.gestureBlocked) return;
+    }
+    if (
+      G.cameraDrag ||
+      G.input?.active ||
+      e.button !== 0 ||
+      e.isPrimary === false
+    )
+      return;
+    if (!canUseCameraControls()) return;
+    const I = G.input,
+      hit = screenPenHit(e),
+      p = pointerTable(e);
+    if (!hit) {
+      if (canAdjustCamera()) beginCameraDrag(e);
+      return;
+    }
+    // A nearby click on either pen can never become a camera-orbit drag.
+    if (!I || hit.who !== I.who || !p) {
+      e.preventDefault();
+      return;
+    }
+    const pen = G.state.pens[I.who];
+    const ax = Math.cos(pen.a),
+      ay = Math.sin(pen.a);
+    const tc = clamp(
+      (p.x - pen.x) * ax + (p.y - pen.y) * ay,
+      -pen.L / 2,
+      pen.L / 2,
+    );
+    const cx = pen.x + ax * tc,
       cy = pen.y + ay * tc;
-    if (Math.hypot(p.x - cx, p.y - cy) > 10) return;
+    clearHint();
     I.active = true;
     I.off = clamp(tc / (pen.L / 2), -0.9, 0.9);
     I.c = { x: cx, y: cy };
     I.p = p;
+    I.p0 = p;
     I.pid = e.pointerId;
     try {
       canvas.setPointerCapture(e.pointerId);
@@ -610,11 +905,57 @@ export function createController({
         }
       });
     }
-    ui.set({ tipVisible: false });
+    ui.set({ hintReady: false });
     updateAim();
     e.preventDefault();
   });
+  function beginCameraDrag(event) {
+    G.cameraDrag = {
+      pid: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      ...C.angle,
+      started: false,
+    };
+    try {
+      canvas.setPointerCapture(event.pointerId);
+    } catch {}
+    event.preventDefault();
+  }
   scope.listen(canvas, "pointermove", (e) => {
+    if (G.touches.has(e.pointerId)) {
+      G.touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (G.gestureBlocked || G.pinch) {
+        if (!G.pinch && G.touches.size >= 2) startPinch();
+        if (G.pinch && canAdjustCamera()) {
+          const [a, b] = touchPair();
+          zoomGesture(
+            (G.pinch.zoom * Math.hypot(a.x - b.x, a.y - b.y)) /
+              G.pinch.distance,
+          );
+        }
+        e.preventDefault();
+        return;
+      }
+    }
+
+    const drag = G.cameraDrag;
+    if (drag && e.pointerId === drag.pid) {
+      const dx = e.clientX - drag.x,
+        dy = e.clientY - drag.y;
+      if (
+        drag.started ||
+        Math.hypot(dx, dy) > gameConfig.input.orbitThreshold
+      ) {
+        drag.started = true;
+        setCameraAngle(
+          drag.azimuth - dx * gameConfig.input.rotateSensitivity,
+          drag.elevation + dy * gameConfig.input.tiltSensitivity,
+        );
+        e.preventDefault();
+      }
+      return;
+    }
     const I = G.input;
     if (!I || !I.active || e.pointerId !== I.pid) return;
     const p = pointerTable(e);
@@ -624,8 +965,8 @@ export function createController({
     }
   });
   function aimVec(I) {
-    const dx = I.p.x - I.c.x,
-      dy = I.p.y - I.c.y,
+    const dx = I.p.x - (I.p0 || I.c).x,
+      dy = I.p.y - (I.p0 || I.c).y,
       d = Math.hypot(dx, dy);
     return { ang: Math.atan2(-dy, -dx), pow: clamp(d / 30, 0, 1), d, dx, dy };
   }
@@ -650,13 +991,21 @@ export function createController({
   function endAim(e) {
     const I = G.input;
     if (!I || !I.active || (e && e.pointerId !== I.pid)) return;
+    if (G.paused) {
+      cancelAim(e);
+      return;
+    }
+    const release = pointerTable(e);
+    if (release) I.p = release;
     const v = aimVec(I);
     I.active = false;
+    releasePointer(I);
     World.showAim(0, 0, 0, 0, false);
     ui.set({ power: null });
     students[I.who].goal = null;
     if (v.pow < 0.07) {
       retract(I.who);
+      ui.set({ hintReady: G.mode === "train" && I.who === 0 });
       return;
     } // cancelled
     const act = {
@@ -675,8 +1024,88 @@ export function createController({
     G.input = null;
     r({ act, contact: I.c, fromPull: true });
   }
+  function releasePointer(input) {
+    try {
+      canvas.releasePointerCapture(input.pid);
+    } catch {}
+  }
+  function cancelAim(event, keepCapture = false) {
+    const input = G.input;
+    if (!input?.active || (event && event.pointerId !== input.pid)) return;
+    input.active = false;
+    if (!keepCapture) releasePointer(input);
+    World.showAim(0, 0, 0, 0, false);
+    retract(input.who);
+    ui.set({
+      power: null,
+      hintReady: G.mode === "train" && input.who === 0 && !G.paused,
+    });
+  }
   scope.listen(canvas, "pointerup", endAim);
-  scope.listen(canvas, "pointercancel", endAim);
+  scope.listen(canvas, "pointercancel", cancelAim);
+  scope.listen(canvas, "lostpointercapture", cancelAim);
+  scope.listen(canvas, "pointerup", cancelCameraDrag);
+  scope.listen(canvas, "pointercancel", cancelCameraDrag);
+  scope.listen(canvas, "lostpointercapture", cancelCameraDrag);
+
+  // Trackpad pinches emit Ctrl+wheel in Chromium and gesture events in Safari.
+  scope.listen(
+    canvas,
+    "wheel",
+    (event) => {
+      if (!event.ctrlKey || G.mode === "menu") return;
+      event.preventDefault();
+      if (G.pinch || !canAdjustCamera()) return;
+      cancelCameraDrag();
+      const pixels =
+        event.deltaY *
+        (event.deltaMode === 1
+          ? 16
+          : event.deltaMode === 2
+            ? canvas.clientHeight
+            : 1);
+      zoomGesture(
+        C.angle.zoom *
+          Math.exp(
+            -clamp(pixels, -120, 120) * gameConfig.input.wheelZoomSensitivity,
+          ),
+      );
+    },
+    { passive: false },
+  );
+  scope.listen(
+    canvas,
+    "gesturestart",
+    (event) => {
+      if (G.mode === "menu") return;
+      event.preventDefault();
+      if (G.touches.size >= 2 || !canAdjustCamera()) return;
+      cancelCameraDrag();
+      G.nativePinchZoom = C.angle.zoom;
+    },
+    { passive: false },
+  );
+  scope.listen(
+    canvas,
+    "gesturechange",
+    (event) => {
+      if (G.mode === "menu") return;
+      event.preventDefault();
+      if (
+        G.nativePinchZoom == null ||
+        G.pinch ||
+        !canAdjustCamera() ||
+        !(event.scale > 0)
+      )
+        return;
+      zoomGesture(G.nativePinchZoom * event.scale);
+    },
+    { passive: false },
+  );
+  scope.listen(canvas, "gestureend", (event) => {
+    if (G.mode !== "menu") event.preventDefault();
+    G.nativePinchZoom = null;
+  });
 
   /* ------------------------------------------------------------------- AI */
 
@@ -688,20 +1117,18 @@ export function createController({
       S = students[who];
     S.thinking = true;
     S.setEmotion("think", 0);
-    setThink(who, cfg, null);
+    setThink(who, cfg);
     World.showHints(null);
     const gen = PF.decide(G.state, who, cfg),
       t0 = performance.now();
-    let r,
-      snd = 0;
+    let r;
     for (;;) {
       r = gen.next();
       if (r.done) break;
       G.live = r.value;
-      setThink(who, cfg, r.value);
+      setThink(who, cfg);
       labDirty = true;
       if (location.hash === "#fast") continue;
-      if ((snd++ & 7) === 0) Snd.think();
       await nextFrame();
       while (G.paused) {
         await nextFrame();
@@ -709,7 +1136,7 @@ export function createController({
       }
       chk(tok);
     }
-    const need = (cfg.think || 800) / G.speed - (performance.now() - t0);
+    const need = (cfg.think ?? 800) / G.speed - (performance.now() - t0);
     if (need > 0) await wait(need / 1000);
     S.thinking = false;
     S.setEmotion("neutral", 0);
@@ -732,14 +1159,8 @@ export function createController({
     cfg.lastInfo = out.info;
     return { act, contact: contactOf(G.state.pens[who], act.off || 0), cfg };
   }
-  function setThink(who, cfg, live) {
-    const nm = G.names[who],
-      st = live && live.stats ? live.stats : null;
-    const thinking =
-      nm +
-      " is thinking · " +
-      PF.ALGOS[cfg.algo] +
-      (st && st.sims ? " · " + st.sims.toLocaleString() + " sims" : "");
+  function setThink(who, cfg) {
+    const thinking = G.names[who] + " is thinking · " + PF.ALGOS[cfg.algo];
     ui.set({ thinking });
   }
 
@@ -833,7 +1254,16 @@ export function createController({
       if (G.humans[who]) {
         G.hint = null;
         students[who].setEmotion("neutral", 0);
-        if (G.mode === "pvp") G.viewSide = who;
+        if (G.mode === "pvp") {
+          G.viewSide = who;
+          if (C.angle.preset === "player")
+            setCameraAngle(
+              CAMERA_PRESETS.player.azimuth + who * 180,
+              C.angle.elevation,
+              "player",
+              false,
+            );
+        }
         got = await humanAim(who);
         chk(tok);
         if (!got) return null;
@@ -848,7 +1278,8 @@ export function createController({
       st.turn = 1 - who;
       st.flicks[who]++;
       updateHud();
-      if (res.out >= 0) return { winner: 1 - res.out, how: "out", res, who };
+      const outcome = roundOutcome(res.out);
+      if (outcome) return { ...outcome, res, who };
       await wait(0.16);
     }
   }
@@ -887,20 +1318,33 @@ export function createController({
   async function roundEnd(r) {
     const tok = G.token,
       win = r.winner;
-    if (win < 0) {
-      showBanner("Draw", "Replaying the round", 1500);
-      await wait(1.6);
-      return;
-    }
-    G.scores[win]++;
+    r.points.forEach((points, side) => {
+      G.scores[side] += points;
+    });
     syncBoard();
+    updateHud();
+    const shared = win < 0;
     const humanWon = G.humans[0] && win === 0,
       humanMatch = G.humans[0] && G.mode !== "pvp";
-    const how = r.who === win ? "Knocked off the desk" : "Slid off the desk";
-    showBanner(G.names[win] + " takes the round", how, 2200);
-    Snd.round(humanMatch ? humanWon : true);
-    const matchDone = G.scores[win] >= G.goal;
+    const how = shared
+      ? "Both pens fell · +1 point each"
+      : r.who === win
+        ? "Knocked off the desk"
+        : "Slid off the desk";
+    const title = shared
+      ? "Both players score"
+      : G.names[win] + " takes the round";
+    showBanner(title, how, 2200);
+    Snd.round(shared || !humanMatch || humanWon);
+    const matchDone = G.scores.some((score) => score >= G.goal);
     const reactions = () => {
+      if (shared) {
+        students.forEach((student) => {
+          student.react = { kind: "happy", t: 0, dur: 2.4 };
+          student.setEmotion("happy", 2.6);
+        });
+        return;
+      }
       students[win].react = {
         kind: matchDone ? "victory" : "happy",
         t: 0,
@@ -916,12 +1360,12 @@ export function createController({
       await wait(0.1);
       await replayShot();
       reactions();
-      showBanner(G.names[win] + " takes the round", how, 2200);
-      C.who = 1 - win;
+      showBanner(title, how, 2200);
+      C.who = shared ? 1 - r.who : 1 - win;
       G.camMode = "react";
       await wait(0.35);
       chk(tok);
-      C.who = win;
+      C.who = shared ? r.who : win;
       await wait(0.35);
     } else {
       reactions();
@@ -940,10 +1384,8 @@ export function createController({
         if (!r) return;
         await roundEnd(r);
         chk(tok);
-        if (r.winner >= 0) {
-          first = 1 - first;
-          G.round++;
-        }
+        first = 1 - first;
+        G.round++;
         if (G.scores[0] >= G.goal || G.scores[1] >= G.goal) break;
       }
       await matchEnd();
@@ -952,18 +1394,22 @@ export function createController({
     }
   }
   async function matchEnd() {
-    const w = G.scores[0] > G.scores[1] ? 0 : 1,
+    const tied = G.scores[0] === G.scores[1],
+      w = G.scores[0] > G.scores[1] ? 0 : 1,
       humanVs = G.humans[0] && G.mode !== "pvp",
       youWon = humanVs && w === 0;
     G.camMode = "react";
     C.who = w;
-    if (humanVs) (youWon ? Snd.win : Snd.lose)();
+    if (tied) Snd.round(true);
+    else if (humanVs) (youWon ? Snd.win : Snd.lose)();
     else Snd.win();
-    let title = humanVs
-      ? youWon
-        ? "You win the match"
-        : G.names[1] + " wins the match"
-      : G.names[w] + " wins the series";
+    const title = tied
+      ? "Match drawn"
+      : humanVs
+        ? youWon
+          ? "You win the match"
+          : G.names[1] + " wins the match"
+        : G.names[w] + " wins the series";
     const sub =
       G.scores[0] + " – " + G.scores[1] + " · " + (G.round - 1) + " rounds";
     await wait(0.6);
@@ -979,7 +1425,6 @@ export function createController({
     if (G.live && G.labOpen)
       ui.set({
         live: structuredClone(G.live),
-        labAlgo: G.live.algo || ui.get().labAlgo,
       });
   }
   function syncSurge() {
@@ -1008,6 +1453,7 @@ export function createController({
     benchmark.stop(false);
     cancelAll();
     G.paused = false;
+    Snd.setPaused(false);
     G.mode = "menu";
     G.camMode = "menu";
     G.labOpen = false;
@@ -1015,6 +1461,7 @@ export function createController({
     G.hint = null;
     ui.set({
       mode: "menu",
+      cameraPinned: false,
       view: "main",
       menuVisible: true,
       paused: false,
@@ -1023,7 +1470,6 @@ export function createController({
       labOpen: false,
       thinking: null,
       power: null,
-      tipVisible: false,
       replaying: false,
       banner: null,
       hintBusy: false,
@@ -1033,10 +1479,11 @@ export function createController({
       surge: { visible: false, available: false, enabled: false },
       benchmark: { running: false, status: "", result: null },
     });
-    G.state = PF.newState(["ball", "premium"], playRng, 0);
-    G.penColors = [null, null];
-    World.setPenType(0, "ball");
-    World.setPenType(1, "premium");
+    const { pen1, pen2 } = ui.get().preferences.pvp;
+    G.pens = [pen1.pen, pen2.pen];
+    G.penColors = [penColorFor(PF, pen1), penColorFor(PF, pen2)];
+    G.state = PF.newState(G.pens, playRng, 0);
+    G.pens.forEach((kind, i) => World.setPenType(i, kind, G.penColors[i]));
     G.spawn = 1;
     G.state.pens.forEach((pen, i) => World.setPen(i, { z: 0, ...pen }, 0, 1));
     Object.assign(World.board, {
@@ -1048,6 +1495,7 @@ export function createController({
     World.drawBoard();
   }
   function begin(mode, options) {
+    Snd.setPaused(false);
     Snd.init();
     benchmark.stop(false);
     cancelAll();
@@ -1063,6 +1511,10 @@ export function createController({
     G.goal = options.goal;
     G.ai = options.ai;
     G.viewSide = 0;
+    G.manualCamera = false;
+    C.angle = overviewCamera(viewport().width / viewport().height);
+    C.pending = false;
+    C.directTime = 0;
     G.hint = null;
     G.live = null;
     G.series = [0, 0];
@@ -1076,7 +1528,7 @@ export function createController({
       );
       student.react = null;
     });
-    const algorithm = (options.ai[1] || options.ai[0])?.algo || "astar";
+    const algorithm = options.ai[mode === "aivai" ? 0 : 1]?.algo || "astar";
     ui.set({
       mode,
       speed: G.speed,
@@ -1087,13 +1539,20 @@ export function createController({
       human: options.humans[0],
       title: options.title,
       labAlgo: algorithm,
-      tipVisible: false,
       power: null,
+      camera: C.angle,
+      cameraPinned: false,
       hintBusy: false,
       hintAvailable: false,
       live: null,
       benchmark: { running: false, status: "", result: null },
     });
+    if (gameConfig.camera.defaultPinned) {
+      C.fov = gameCam(C.pos, C.look);
+      C.zoom = C.angle.zoom;
+      setCameraPinned(true);
+      C.pinnedDeskView = true;
+    }
     setLab(!!options.lab);
     syncSurgeUI();
     syncBoard();
@@ -1103,16 +1562,31 @@ export function createController({
     begin(mode, buildMatchOptions(PF, SET, ui.get().preferences, mode));
   }
   function pause() {
-    if (G.mode === "menu" || ui.get().end) return;
+    if (G.mode === "menu" || G.paused || ui.get().end) return;
     Snd.init();
     G.paused = true;
-    ui.set({ paused: true });
+    Snd.setPaused(true);
+    cancelAim();
+    cancelCameraDrag();
+    cancelTouchGesture();
+    clearHint();
+    ui.set({ paused: true, hintReady: false });
   }
   function resume() {
     G.paused = false;
-    ui.set({ paused: false, fromPause: false, menuVisible: false });
+    Snd.setPaused(false);
+    Snd.init();
+    ui.set({
+      paused: false,
+      fromPause: false,
+      menuVisible: false,
+      hintReady: G.mode === "train" && G.input?.who === 0 && !G.input.active,
+    });
   }
   function settings() {
+    cancelAim();
+    cancelCameraDrag();
+    cancelTouchGesture();
     G.paused = true;
     ui.set({
       paused: false,
@@ -1128,17 +1602,30 @@ export function createController({
     } else ui.set({ view: "main" });
   }
   function changeAlgorithm(algo) {
+    clearHint();
     ui.set({ labAlgo: algo });
     const side = G.mode === "aivai" ? 0 : 1;
     if (G.ai[side]) G.ai[side].algo = algo;
+    if (G.mode === "aivai") {
+      G.names = G.ai.map((cfg) => PF.SHORT[cfg.algo]);
+      if (G.names[0] === G.names[1]) G.names[1] += " (2)";
+      syncBoard();
+    }
   }
   scope.listen(window, "keydown", (event) => {
-    if (/INPUT|SELECT|TEXTAREA/.test(event.target?.tagName || "")) return;
+    if (event.defaultPrevented) return;
     if (event.key === "Escape" && G.mode !== "menu") {
+      if (event.repeat) {
+        event.preventDefault();
+        return;
+      }
       if (ui.get().fromPause) back();
       else if (G.paused) resume();
       else pause();
+      event.preventDefault();
+      return;
     }
+    if (/INPUT|SELECT|TEXTAREA/.test(event.target?.tagName || "")) return;
     if (
       (event.key === "l" || event.key === "L") &&
       G.mode !== "menu" &&
@@ -1146,44 +1633,72 @@ export function createController({
     )
       setLab(!G.labOpen);
   });
+  scope.listen(window, "blur", pause);
+  scope.listen(document, "visibilitychange", () => {
+    if (document.hidden) pause();
+  });
+  function clearHint() {
+    hintRequest++;
+    G.hint = null;
+    World.showHints(null);
+    ui.set({ hintBusy: false, hintAvailable: false });
+  }
   async function requestHint() {
-    const tok = G.token;
-    if (!G.state || !G.humans[0] || !G.input || ui.get().hintBusy) return;
+    if (
+      G.mode !== "train" ||
+      G.paused ||
+      G.input?.who !== 0 ||
+      G.input.active ||
+      ui.get().hintBusy
+    )
+      return;
+    const tok = G.token,
+      input = G.input,
+      request = ++hintRequest;
+    const current = () =>
+      tok === G.token &&
+      request === hintRequest &&
+      G.input === input &&
+      !input.active &&
+      !G.paused;
     const algo = ui.get().labAlgo;
     const cfg = { algo, noise: null, mem: PF.newMemory("expert") };
     const gen = PF.decide(G.state, 0, Object.assign({}, cfg, { seed: 5 }));
     let r;
     ui.set({ hintBusy: true });
-    for (;;) {
-      r = gen.next();
-      if (r.done) break;
-      G.live = r.value;
-      labDirty = true;
-      await nextFrame();
-      if (tok !== G.token || !G.input) {
-        ui.set({ hintBusy: false });
-        return;
+    try {
+      for (;;) {
+        if (!current()) return;
+        r = gen.next();
+        if (r.done) break;
+        G.live = r.value;
+        labDirty = true;
+        await nextFrame();
       }
+      if (!current()) return;
+      G.live = r.value.info;
+      G.hint = r.value;
+      labDirty = true;
+      ui.set({ hintBusy: false });
+      ui.set({ hintAvailable: true });
+      const pen = G.state.pens[0];
+      World.showHints(
+        (r.value.info.moves || []).slice(0, 5).map((m) => {
+          const c = contactOf(pen, m.act.off || 0);
+          return {
+            x: c.x - Math.cos(m.act.ang) * 0,
+            y: c.y,
+            ang: m.act.ang,
+            pow: m.act.pow,
+            score: m.score,
+            selected: m.selected,
+          };
+        }),
+      );
+    } finally {
+      gen.return();
+      if (request === hintRequest) ui.set({ hintBusy: false });
     }
-    G.live = r.value.info;
-    G.hint = r.value;
-    labDirty = true;
-    ui.set({ hintBusy: false });
-    ui.set({ hintAvailable: true });
-    const pen = G.state.pens[0];
-    World.showHints(
-      (r.value.info.moves || []).slice(0, 5).map((m) => {
-        const c = contactOf(pen, m.act.off || 0);
-        return {
-          x: c.x - Math.cos(m.act.ang) * 0,
-          y: c.y,
-          ang: m.act.ang,
-          pow: m.act.pow,
-          score: m.score,
-          selected: m.selected,
-        };
-      }),
-    );
   }
   /* ------------------------------------------------------------- main loop */
   const perf = { acc: 0, n: 0, low: 0, cool: 0 };
@@ -1193,6 +1708,10 @@ export function createController({
     scope.frame(frame);
     let dt = Math.min(DTMAX, (ts - last) / 1000);
     last = ts;
+    // A menu turn needs the compositor; keep the last WebGL frame until it ends.
+    // Advance the timestamp so the scene resumes without a catch-up jump.
+    if (ui.get().menuVisible && ui.get().menuTurning) return;
+    publishCamera();
     perf.acc += dt;
     perf.n++;
     if (perf.acc >= 1) {
@@ -1269,6 +1788,7 @@ export function createController({
     changeAlgorithm,
     showView(view) {
       Snd.init();
+      Snd.page();
       ui.set({ view });
     },
     toggleLab() {
@@ -1285,23 +1805,71 @@ export function createController({
       }
     },
     skipReplay() {
-      if (G.play?.replay) G.play.t = G.play.dur;
+      if (G.play?.replay) {
+        G.play.t = G.play.dur;
+        G.play.ei = G.play.events.length;
+        Snd.stopMotion();
+      }
     },
     setSpeed(speed) {
+      if (disposed || !CONFIG_LIMITS.speeds.includes(speed)) return;
       G.speed = speed;
       ui.set({ speed });
+    },
+    setCameraAngle,
+    setCameraPinned,
+    setCameraRotation(azimuth) {
+      setCameraAngle(azimuth, C.angle.elevation);
+      publishCamera();
+    },
+    setCameraTilt(elevation) {
+      setCameraAngle(C.angle.azimuth, elevation);
+      publishCamera();
+    },
+    setCameraZoom(zoom) {
+      setCameraAngle(
+        C.angle.azimuth,
+        C.angle.elevation,
+        C.angle.preset,
+        true,
+        zoom,
+      );
+      publishCamera();
+    },
+    resetCamera() {
+      const angle = overviewCamera(viewport().width / viewport().height);
+      setCameraAngle(
+        angle.azimuth,
+        angle.elevation,
+        "overview",
+        false,
+        angle.zoom,
+      );
+    },
+    setCameraPreset(preset) {
+      const angle =
+        preset === "overview"
+          ? overviewCamera(viewport().width / viewport().height)
+          : CAMERA_PRESETS[preset];
+      if (angle)
+        setCameraAngle(
+          angle.azimuth + (preset === "player" ? G.viewSide * 180 : 0),
+          angle.elevation,
+          preset,
+          false,
+        );
     },
     requestHint() {
       setLab(true);
       return requestHint();
     },
     applyHint() {
-      if (!G.input || !G.hint) return;
+      if (G.paused || G.input?.who !== 0 || G.input.active || !G.hint) return;
       const action = { ...G.hint.action },
         input = G.input;
       G.input = null;
-      ui.set({ hintAvailable: false });
-      World.showHints(null);
+      clearHint();
+      ui.set({ hintReady: false });
       input.res({
         act: action,
         contact: contactOf(G.state.pens[0], action.off || 0),

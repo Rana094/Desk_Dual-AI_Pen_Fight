@@ -24,8 +24,8 @@ export function PenSelector({
     onChange({ ...value, colors: { ...value.colors, [value.pen]: next } });
   }
   return (
-    <section aria-label={label}>
-      <div className="chips">
+    <section className="pen-selector" aria-label={label}>
+      <div className="chips pen-options">
         {(Object.keys(PEN_DEFINITIONS) as PenKind[])
           .filter((key) => includePremium || key !== "premium")
           .map((key) => {
@@ -76,6 +76,7 @@ export function PenSelector({
                 className="pc-input"
                 type="color"
                 value={color}
+                onInput={(event) => changeColor(event.currentTarget.value)}
                 onChange={(event) => changeColor(event.target.value)}
               />
             </label>

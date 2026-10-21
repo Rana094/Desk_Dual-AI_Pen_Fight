@@ -1,4 +1,5 @@
 "use client";
+import { CONFIG_LIMITS } from "@/config/config";
 import {
   useGamePreferences,
   useGameServices,
@@ -14,7 +15,7 @@ export function AiBattleMenuView() {
   const update = (patch: Partial<typeof value>) =>
     setPreferences({ ...preferences, ai: { ...value, ...patch } });
   return (
-    <MenuPage view="aivai" title="AI Battle" eyebrow="AI SHOWDOWN">
+    <MenuPage view="aivai" title="AI Battle">
       <div className="two">
         <label className="f">
           AI A
@@ -55,9 +56,6 @@ export function AiBattleMenuView() {
           />
         </label>
       </div>
-      <p className="lead">
-        Choose a pen for each AI. They can use the same model or different pens.
-      </p>
       <div className="two ai-pen-columns">
         <section className="ai-pen-panel">
           <h3>AI A pen</h3>
@@ -82,7 +80,7 @@ export function AiBattleMenuView() {
           value={value.speed}
           onChange={(event) => update({ speed: Number(event.target.value) })}
         >
-          {[1, 2, 4].map((speed) => (
+          {CONFIG_LIMITS.speeds.map((speed) => (
             <option key={speed} value={speed}>
               x{speed}
             </option>

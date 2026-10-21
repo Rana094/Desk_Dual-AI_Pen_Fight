@@ -1,4 +1,5 @@
 "use client";
+import { CONFIG_LIMITS } from "@/config/config";
 import {
   useGamePreferences,
   useGameServices,
@@ -12,17 +13,13 @@ export function LocalMatchMenuView() {
   const update = (patch: Partial<typeof value>) =>
     setPreferences({ ...preferences, pvp: { ...value, ...patch } });
   return (
-    <MenuPage view="pvp" title="Human vs Human" eyebrow="FRIENDLY MATCH">
-      <p className="lead">
-        Take turns on the same screen. The camera turns to face whoever is
-        flicking.
-      </p>
+    <MenuPage view="pvp" title="Human vs Human">
       <div className="two">
         <label className="f">
           Player 1
           <input
             type="text"
-            maxLength={14}
+            maxLength={CONFIG_LIMITS.nameLength}
             autoComplete="off"
             value={value.name1}
             onChange={(event) => update({ name1: event.target.value })}
@@ -32,7 +29,7 @@ export function LocalMatchMenuView() {
           Player 2
           <input
             type="text"
-            maxLength={14}
+            maxLength={CONFIG_LIMITS.nameLength}
             autoComplete="off"
             value={value.name2}
             onChange={(event) => update({ name2: event.target.value })}
@@ -65,7 +62,7 @@ export function LocalMatchMenuView() {
           value={value.goal}
           onChange={(event) => update({ goal: Number(event.target.value) })}
         >
-          {[1, 3, 5].map((goal) => (
+          {CONFIG_LIMITS.goals.map((goal) => (
             <option key={goal} value={goal}>
               {goal} {goal === 1 ? "round" : "rounds"}
             </option>

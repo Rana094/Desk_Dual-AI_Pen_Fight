@@ -1,5 +1,9 @@
 "use client";
-import { useGamePreferences } from "@/features/game/runtime/GameProvider";
+import { CONFIG_LIMITS } from "@/config/config";
+import {
+  useGamePreferences,
+  useGameState,
+} from "@/features/game/runtime/GameProvider";
 import type { GameSettings } from "@/game/state/types";
 import { MenuPage } from "./MenuPage";
 const toggles = [
@@ -13,13 +17,14 @@ const toggles = [
 ] as const;
 export function SettingsMenuView() {
   const { settings, setSettings } = useGamePreferences();
+  const { cameraPinned } = useGameState(["cameraPinned"]);
   return (
-    <MenuPage view="settings" title="Settings" eyebrow="CUSTOMISE YOUR GAME">
+    <MenuPage view="settings" title="Settings">
       <label className="f">
         Player name
         <input
           type="text"
-          maxLength={14}
+          maxLength={CONFIG_LIMITS.nameLength}
           autoComplete="off"
           value={settings.name}
           onChange={(event) => setSettings({ name: event.target.value })}
@@ -47,7 +52,7 @@ export function SettingsMenuView() {
             })
           }
         >
-          <option value="auto">Auto (adapts to frame rate)</option>
+          <option value="auto">Auto</option>
           <option value="high">High</option>
           <option value="medium">Medium</option>
           <option value="low">Low</option>
@@ -63,17 +68,17 @@ export function SettingsMenuView() {
             })
           }
         >
-          <option value="oak">Classic oak · warm classroom wood</option>
-          <option value="maple">Light maple · pale satin grain</option>
-          <option value="walnut">Dark walnut · rich brown grain</option>
+          <option value="oak">Classic oak</option>
+          <option value="maple">Light maple</option>
+          <option value="walnut">Dark walnut</option>
         </select>
       </label>
       <label className="sw">
         Desk friction <span>{Math.round(settings.friction * 100)}%</span>
         <input
           type="range"
-          min={80}
-          max={110}
+          min={CONFIG_LIMITS.friction.min * 100}
+          max={CONFIG_LIMITS.friction.max * 100}
           step={1}
           value={Math.round(settings.friction * 100)}
           onChange={(event) =>
@@ -82,14 +87,19 @@ export function SettingsMenuView() {
         />
       </label>
       <div className="mute">
-        80% = more sliding · 100% = original grip · 110% = less sliding. Applies
-        to both players and AI.
+        Lower friction means more sliding. Applies to both pens.
       </div>
       {toggles.map(([key, label]) => (
-        <label className="sw" key={key}>
+        <label className="sw settings-toggle" key={key}>
           {label}
           <input
             type="checkbox"
+            disabled={key === "follow" && cameraPinned}
+            title={
+              key === "follow" && cameraPinned
+                ? "Unpin the camera to use Follow"
+                : undefined
+            }
             checked={settings[key]}
             onChange={(event) => setSettings({ [key]: event.target.checked })}
           />

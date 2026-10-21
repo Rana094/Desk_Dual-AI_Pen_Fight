@@ -1,9 +1,16 @@
 import type { Difficulty, ShotAction } from "../contracts";
 import type { PenKind } from "@/features/pen/types";
 import type { SceneQuality } from "../scene/types";
-export type Algorithm = keyof typeof import("../ai/catalog.js").ALGORITHMS;
+export type Algorithm = import("../../config/config").ConfigAlgorithm;
 export type GameMode = "menu" | "pvp" | "vs" | "train" | "aivai";
 export type MenuView = "main" | "pvp" | "vs" | "train" | "aivai" | "settings";
+export type CameraPreset = "overview" | "top" | "side" | "player";
+export interface CameraAngle {
+  preset: CameraPreset | "custom";
+  azimuth: number;
+  elevation: number;
+  zoom: number;
+}
 export interface PenSelection {
   pen: PenKind;
   colors: Partial<Record<PenKind, string>>;
@@ -89,6 +96,7 @@ export interface GameUiState {
   mode: GameMode;
   view: MenuView;
   menuVisible: boolean;
+  menuTurning: boolean;
   paused: boolean;
   fromPause: boolean;
   end: { title: string; subtitle: string; won: boolean } | null;
@@ -102,8 +110,8 @@ export interface GameUiState {
   thinking: string | null;
   banner: { title: string; subtitle: string } | null;
   replaying: boolean;
-  tipVisible: boolean;
-  flickCorner: "top-left" | "top-right" | "bottom-left" | "bottom-right";
+  camera: CameraAngle;
+  cameraPinned: boolean;
   power: { value: number; surge: boolean } | null;
   surge: { visible: boolean; available: boolean; enabled: boolean };
   fpsLabel: string;
@@ -111,6 +119,7 @@ export interface GameUiState {
   labAlgo: Algorithm;
   live: LiveDecision | null;
   hintBusy: boolean;
+  hintReady: boolean;
   hintAvailable: boolean;
   benchmark: {
     running: boolean;
