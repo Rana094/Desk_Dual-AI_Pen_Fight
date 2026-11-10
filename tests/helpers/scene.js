@@ -1,10 +1,11 @@
 import * as THREE from "three";
 import { createWorld } from "../../src/game/scene/world.js";
+import { createGameEngine } from "../../src/game/engine.js";
 
 // Canvas drawing is not under test here. Use real Three.js geometry/materials;
 // supply only the 2D API used to paint procedural texture images.
 export function sceneFixture() {
-  const engine = { TABLE: { w: 60, h: 100 } };
+  const engine = createGameEngine();
   const world = createWorld(engine);
   const gradient = { addColorStop() {} };
   const context = new Proxy(
