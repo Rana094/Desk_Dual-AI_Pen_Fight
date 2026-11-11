@@ -1,0 +1,92 @@
+import { gameConfig } from "../../config/config.ts";
+import { createUninformedStrategy } from "./strategies/uninformed.js";
+import { createShotEvaluator } from "./evaluation.js";
+import { createSearchContext } from "./context.js";
+import { createSearchStrategy } from "./strategies/search.js";
+import { ALGORITHMS, ALGORITHM_SHORT, DIFFICULTIES } from "./catalog.js";
+/* AI algorithms depend on the public physics/action interface passed into this installer. */
+export function installAlgorithms(PF) {
+  "use strict";
+  const { clamp, gauss } = PF._internals;
+  /* ------------------------------------------------------------ heuristic */
+  PF.evalShot = createShotEvaluator(PF);
+  const { mkCtx, slice, stats, ev, topMoves, movesFrom } =
+    createSearchContext(PF);
+
+  /* ======================================================= decision wrapper */
+  const deps = { PF, ...PF._internals, ev, topMoves, movesFrom, slice, stats };
+  const { informed } = createSearchStrategy(deps);
+  const { depthSearch } = createUninformedStrategy(deps);
+
+  const available = Object.fromEntries(
+    Object.entries(ALGORITHMS).filter(([key]) => ["dfs", "best", "astar"].includes(key)),
+  );
+  PF.ALGOS = available;
+  PF.SHORT = ALGORITHM_SHORT;
+  PF.LEVELS = DIFFICULTIES;
+  const DEFAULT_CFG = gameConfig.ai.budgets;
+  PF.decide = function* (state, me, cfg) {
+    cfg = Object.assign(
+      { algo: gameConfig.ai.defaultAlgorithm, noise: null },
+      cfg,
+    );
+    const algo = Object.hasOwn(available, cfg.algo)
+      ? cfg.algo
+      : "astar";
+    cfg.algo = algo;
+    const ctx = mkCtx(cfg, me);
+    ctx.live.algo = algo;
+    const scale = cfg.budgetScale == null ? 1 : cfg.budgetScale;
+    const c = Object.assign({}, DEFAULT_CFG[algo] || {}, cfg);
+    if (c.iters) c.iters = Math.max(1, Math.round(c.iters * scale));
+    if (c.evalBudget)
+      c.evalBudget = Math.max(15, Math.round(c.evalBudget * scale));
+    if (c.leafBudget)
+      c.leafBudget = Math.max(15, Math.round(c.leafBudget * scale));
+    let out;
+    if (algo === "dfs") out = yield* depthSearch(state, me, c, ctx);
+    else if (algo === "best") out = yield* informed(state, me, c, ctx, false);
+    else if (algo === "astar") out = yield* informed(state, me, c, ctx, true);
+    // human-like mistakes: sometimes settle for a runner-up
+    let action = out.action,
+      mistake = false;
+    if (cfg.mistake && ctx.rng() < cfg.mistake) {
+      const alternatives = out.moves
+        .filter((move) => move.act.key !== action.key)
+        .slice(0, 4);
+      if (alternatives.length > 0) {
+        const alternative =
+          alternatives[Math.floor(ctx.rng() * alternatives.length)];
+        action = alternative.act;
+        mistake = true;
+      }
+    }
+    ctx.live.stats = stats(ctx);
+    ctx.live.selected = action;
+    for (const move of ctx.live.moves) {
+      move.selected = move.act.key === action.key;
+    }
+    ctx.live.mistake = mistake;
+    return { action, info: ctx.live };
+  };
+  PF.runSync = function (gen) {
+    let r = gen.next();
+    while (!r.done) r = gen.next();
+    return r.value;
+  };
+  PF.newMemory = function (skill) {
+    return {
+      conf: skill === "expert" ? 0.85 : skill === "advanced" ? 0.6 : 0.3,
+    };
+  };
+  PF.noisy = function (act, noise, r) {
+    if (!noise) return act;
+    const a = Object.assign({}, act);
+    a.ang += gauss(r) * noise.a;
+    a.pow = clamp(a.pow * (1 + gauss(r) * noise.p), 0.05, 1.05);
+    return a;
+  };
+
+
+  return PF;
+}
