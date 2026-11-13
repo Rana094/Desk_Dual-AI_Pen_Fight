@@ -3,6 +3,8 @@ import { createUninformedStrategy } from "./strategies/uninformed.js";
 import { createShotEvaluator } from "./evaluation.js";
 import { createSearchContext } from "./context.js";
 import { createSearchStrategy } from "./strategies/search.js";
+import { createMinimaxStrategy } from "./strategies/minimax.js";
+import { createMctsStrategy } from "./strategies/mcts.js";
 import { ALGORITHMS, ALGORITHM_SHORT, DIFFICULTIES } from "./catalog.js";
 /* AI algorithms depend on the public physics/action interface passed into this installer. */
 export function installAlgorithms(PF) {
@@ -16,12 +18,11 @@ export function installAlgorithms(PF) {
   /* ======================================================= decision wrapper */
   const deps = { PF, ...PF._internals, ev, topMoves, movesFrom, slice, stats };
   const { informed } = createSearchStrategy(deps);
+  const { minimaxAI } = createMinimaxStrategy(deps);
+  const { mctsAI } = createMctsStrategy(deps);
   const { depthSearch } = createUninformedStrategy(deps);
 
-  const available = Object.fromEntries(
-    Object.entries(ALGORITHMS).filter(([key]) => ["dfs", "best", "astar"].includes(key)),
-  );
-  PF.ALGOS = available;
+  PF.ALGOS = ALGORITHMS;
   PF.SHORT = ALGORITHM_SHORT;
   PF.LEVELS = DIFFICULTIES;
   const DEFAULT_CFG = gameConfig.ai.budgets;
@@ -30,9 +31,9 @@ export function installAlgorithms(PF) {
       { algo: gameConfig.ai.defaultAlgorithm, noise: null },
       cfg,
     );
-    const algo = Object.hasOwn(available, cfg.algo)
+    const algo = Object.hasOwn(ALGORITHMS, cfg.algo)
       ? cfg.algo
-      : "astar";
+      : gameConfig.ai.defaultAlgorithm;
     cfg.algo = algo;
     const ctx = mkCtx(cfg, me);
     ctx.live.algo = algo;
@@ -47,6 +48,8 @@ export function installAlgorithms(PF) {
     if (algo === "dfs") out = yield* depthSearch(state, me, c, ctx);
     else if (algo === "best") out = yield* informed(state, me, c, ctx, false);
     else if (algo === "astar") out = yield* informed(state, me, c, ctx, true);
+    else if (algo === "minimax") out = yield* minimaxAI(state, me, c, ctx);
+    else if (algo === "mcts") out = yield* mctsAI(state, me, c, ctx);
     // human-like mistakes: sometimes settle for a runner-up
     let action = out.action,
       mistake = false;
@@ -59,6 +62,9 @@ export function installAlgorithms(PF) {
           alternatives[Math.floor(ctx.rng() * alternatives.length)];
         action = alternative.act;
         mistake = true;
+        if (algo === "minimax") {
+          ctx.live.extra.worstReply = alternative.reply?.label ?? null;
+        }
       }
     }
     ctx.live.stats = stats(ctx);
