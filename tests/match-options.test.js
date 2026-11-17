@@ -1,0 +1,97 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createGameEngine } from "../src/game/engine.js";
+import { buildMatchOptions } from "../src/game/controller/modes.js";
+
+test("human and AI use identical pen physics and contrasting colours for every selection", () => {
+  const engine = createGameEngine();
+  for (const difficulty of Object.keys(engine.LEVELS)) {
+    for (const pen of Object.keys(engine.PENS)) {
+      for (const color of engine.PEN_CUSTOM[pen]?.swatches || [
+        engine.PENS[pen].color,
+      ]) {
+        const selection = {
+          pen,
+          colors: { [pen]: color },
+          difficulty,
+          algorithm: "auto",
+        };
+        for (const mode of ["vs", "train"]) {
+          const match = buildMatchOptions(
+            engine,
+            { name: "Tester" },
+            { vs: selection, train: selection },
+            mode,
+          );
+          assert.deepEqual(match.pens, [pen, pen]);
+          assert.equal(match.penColors[0], color);
+          assert.notEqual(
+            match.penColors[0].toLowerCase(),
+            match.penColors[1].toLowerCase(),
+          );
+          assert.equal(match.ai[1].level, difficulty);
+          assert.deepEqual(match.humans, [true, false]);
+          assert.deepEqual(match.names, ["Tester", "AI"]);
+        }
+      }
+    }
+  }
+});
+test("local multiplayer keeps independent selections and disambiguates equal names", () => {
+  const match = buildMatchOptions(
+    createGameEngine(),
+    {},
+    {
+      pvp: {
+        name1: "Alex",
+        name2: "Alex",
+        goal: 5,
+        pen1: { pen: "gel", colors: {} },
+        pen2: { pen: "ball", colors: {} },
+      },
+    },
+    "pvp",
+  );
+  assert.deepEqual(match.pens, ["gel", "ball"]);
+  assert.deepEqual(match.names, ["Alex", "Alex (2)"]);
+  assert.equal(match.goal, 5);
+  assert.deepEqual(match.ai, [null, null]);
+});
+
+test("AI Battle keeps selected algorithms and pens without aim noise or random mistakes", () => {
+  const engine = createGameEngine();
+  const match = buildMatchOptions(
+    engine,
+    {},
+    {
+      ai: {
+        a: "dfs",
+        b: "mcts",
+        sa: "beginner",
+        sb: "advanced",
+        speed: 4,
+        penA: { pen: "gel", colors: {} },
+        penB: { pen: "ball", colors: {} },
+      },
+    },
+    "aivai",
+  );
+  assert.deepEqual(
+    match.ai.map(({ algo }) => algo),
+    ["dfs", "mcts"],
+  );
+  assert.deepEqual(
+    match.ai.map(({ level }) => level),
+    ["expert", "expert"],
+  );
+  assert.deepEqual(
+    match.ai.map(({ noise }) => noise),
+    [null, null],
+  );
+  assert.deepEqual(
+    match.ai.map(({ mistake }) => mistake),
+    [0, 0],
+  );
+  assert.deepEqual(match.pens, ["gel", "ball"]);
+  assert.equal(match.speed, 4);
+});

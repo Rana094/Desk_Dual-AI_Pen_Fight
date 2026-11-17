@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import {
   createGameConfig,
   defaultGameConfig,
@@ -142,4 +143,163 @@ test("unknown keys and prototype fields are ignored", () => {
   );
   assert.deepEqual(config, defaultGameConfig);
   assert.equal({}.polluted, undefined);
+});
+
+function probe(environment, saved = {}) {
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([key]) => !key.startsWith("NEXT_PUBLIC_GAME_"),
+    ),
+  );
+  return JSON.parse(
+    execFileSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `
+    import { gameConfig } from './src/config/config.ts';
+    import { createUiStore } from './src/game/state/store.ts';
+    import { hydrateState } from './src/game/state/preferences.js';
+    import { createGameEngine } from './src/game/engine.js';
+    import { buildMatchOptions } from './src/game/controller/modes.js';
+    import { overviewCamera } from './src/game/controller/camera.js';
+    const saved = ${JSON.stringify(saved)};
+    globalThis.localStorage = { getItem: key => key in saved ? JSON.stringify(saved[key]) : null };
+    const ui = createUiStore(), engine = createGameEngine();
+    hydrateState(engine, ui);
+    const state = ui.get();
+    console.log(JSON.stringify({
+      settings: state.settings, preferences: state.preferences,
+      camera: overviewCamera(1.5), physics: engine._internals,
+      real: engine.REAL, friction: engine.FRICTION, ball: engine.PENS.ball,
+      advanced: engine.LEVELS.advanced,
+      vs: buildMatchOptions(engine, state.settings, state.preferences, 'vs'),
+      train: buildMatchOptions(engine, state.settings, state.preferences, 'train'),
+      ai: buildMatchOptions(engine, state.settings, state.preferences, 'aivai'),
+      volume: gameConfig.settings.vol,
+    }));
+  `,
+      ],
+      {
+        cwd: new URL("..", import.meta.url),
+        env: { ...env, ...environment },
+        encoding: "utf8",
+      },
+    ),
+  );
+}
+
+test("actual environment variables reach store, hydration, modes, camera, pens and physics", () => {
+  const result = probe({
+    NEXT_PUBLIC_GAME_VOLUME: "0.3",
+    NEXT_PUBLIC_GAME_AMBIENCE: "false",
+    NEXT_PUBLIC_GAME_DEFAULT_PEN: "ball",
+    NEXT_PUBLIC_GAME_DIFFICULTY: "expert",
+    NEXT_PUBLIC_GAME_FRICTION: "1.03",
+    NEXT_PUBLIC_GAME_REALISM: "false",
+    NEXT_PUBLIC_GAME_VS_GOAL: "5",
+    NEXT_PUBLIC_GAME_CAMERA_ZOOM: "1.15",
+    NEXT_PUBLIC_GAME_CONFIG: JSON.stringify({
+      settings: { vol: 0.1 },
+      preferences: {
+        train: { algorithm: "minimax" },
+        ai: { a: "dfs", b: "astar", speed: 4 },
+        pvp: { name1: "Alex", goal: 5 },
+      },
+      matches: { trainingGoal: 50, aiGoal: 7 },
+      physics: { maxFlickSpeed: 190 },
+      pens: { ball: { mass: 1.2 } },
+      ai: { difficulties: { advanced: { think: 750 } } },
+    }),
+  });
+  assert.equal(result.settings.vol, 0.3);
+  assert.equal(result.settings.amb, false);
+  assert.equal(result.preferences.vs.pen, "ball");
+  assert.equal(result.preferences.vs.difficulty, "expert");
+  assert.equal(result.preferences.train.algorithm, "minimax");
+  assert.equal(result.preferences.ai.a, "dfs");
+  assert.equal(result.preferences.ai.b, "astar");
+  assert.equal(result.preferences.ai.speed, 4);
+  assert.equal(result.preferences.pvp.name1, "Alex");
+  assert.equal(result.preferences.pvp.goal, 5);
+  assert.equal(result.vs.goal, 5);
+  assert.equal(result.train.goal, 50);
+  assert.equal(result.ai.goal, 7);
+  assert.equal(result.camera.zoom, 1.15);
+  assert.equal(result.physics.VMAX, 190);
+  assert.equal(result.real, false);
+  assert.equal(result.friction, 1.03);
+  assert.equal(result.ball.mass, 1.2);
+  assert.equal(result.advanced.think, 750);
+});
+
+test("saved player choices win over environment defaults, including legacy selections", () => {
+  const env = {
+    NEXT_PUBLIC_GAME_VOLUME: "0.3",
+    NEXT_PUBLIC_GAME_DEFAULT_PEN: "ball",
+  };
+  const result = probe(env, {
+    "pfa.settings": { vol: 0.9 },
+    "pfa.preferences": { vs: { pen: "gel", difficulty: "beginner" } },
+  });
+  assert.equal(result.settings.vol, 0.9);
+  assert.equal(result.volume, 0.3);
+  assert.equal(result.preferences.vs.pen, "gel");
+  assert.equal(result.preferences.vs.difficulty, "beginner");
+  assert.equal(probe(env, { "pfa.pen": "premium" }).preferences.vs.pen, "ball");
+});
+
+test("all public scalar aliases reach their matching settings, mode and goal fields", () => {
+  const result = probe({
+    NEXT_PUBLIC_GAME_PLAYER_NAME: "Sam",
+    NEXT_PUBLIC_GAME_VOLUME: "0",
+    NEXT_PUBLIC_GAME_AMBIENCE: "false",
+    NEXT_PUBLIC_GAME_QUALITY: "low",
+    NEXT_PUBLIC_GAME_TABLE_SURFACE: "walnut",
+    NEXT_PUBLIC_GAME_FOLLOW: "true",
+    NEXT_PUBLIC_GAME_REPLAY: "false",
+    NEXT_PUBLIC_GAME_SLOWMO: "false",
+    NEXT_PUBLIC_GAME_FPS: "true",
+    NEXT_PUBLIC_GAME_AIM_GUIDE: "false",
+    NEXT_PUBLIC_GAME_FRICTION: "1.1",
+    NEXT_PUBLIC_GAME_REALISM: "false",
+    NEXT_PUBLIC_GAME_DEFAULT_PEN: "gel",
+    NEXT_PUBLIC_GAME_DIFFICULTY: "beginner",
+    NEXT_PUBLIC_GAME_VS_GOAL: "7",
+    NEXT_PUBLIC_GAME_TRAINING_GOAL: "25",
+    NEXT_PUBLIC_GAME_AI_GOAL: "9",
+    NEXT_PUBLIC_GAME_CAMERA_ZOOM: "0.75",
+  });
+  assert.deepEqual(result.settings, {
+    name: "Sam",
+    vol: 0,
+    amb: false,
+    quality: "low",
+    tableSurface: "walnut",
+    follow: true,
+    replay: false,
+    slowmo: false,
+    fps: true,
+    guide: false,
+    friction: 1.1,
+    real: false,
+  });
+  assert.equal(result.preferences.vs.pen, "gel");
+  assert.equal(result.preferences.train.pen, "gel");
+  assert.equal(result.preferences.vs.difficulty, "beginner");
+  assert.equal(result.preferences.train.difficulty, "beginner");
+  assert.equal(result.vs.goal, 7);
+  assert.equal(result.train.goal, 25);
+  assert.equal(result.ai.goal, 9);
+  assert.equal(result.camera.zoom, 0.75);
+});
+
+test("legacy colour-only storage is preserved without a legacy pen key", () => {
+  const result = probe(
+    {},
+    { "pfa.matadorPenColors": { matador_hs: "#123456" } },
+  );
+  assert.equal(result.preferences.vs.colors.matador_hs, "#123456");
+  assert.equal(result.preferences.train.colors.matador_hs, "#123456");
 });
