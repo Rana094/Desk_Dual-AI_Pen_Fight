@@ -5,6 +5,7 @@ import type {
   GameMode,
   MenuView,
 } from "@/game/state/types";
+import type { Difficulty } from "@/game/contracts";
 import type { SceneWorld } from "@/game/scene/types";
 export interface GameController {
   start(mode: Exclude<GameMode, "menu">): void;
@@ -26,7 +27,15 @@ export interface GameController {
   resetCamera(): void;
   setCameraPinned(pinned: boolean): void;
   dispose(): void;
-
+  benchmark: {
+    run(
+      a: Algorithm,
+      b: Algorithm,
+      rounds: number,
+      level: Difficulty,
+    ): Promise<void>;
+    stop(notify?: boolean): void;
+  };
 }
 export function createController(options: {
   engine: unknown;

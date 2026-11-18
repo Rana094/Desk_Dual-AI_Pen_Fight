@@ -2,9 +2,26 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createGameEngine } from "../src/game/engine.js";
 import { roundOutcome } from "../src/game/physics/outcome.js";
+import { createShotEvaluator } from "../src/game/ai/evaluation.js";
+import { createBenchmarkRunner } from "../src/game/ai/benchmark.js";
+import { createUiStore } from "../src/game/state/store.ts";
 import { interpolateRecording } from "../src/game/controller/playback.js";
+import { controllerFixture } from "./helpers/controller.js";
 
 const noFlick = { ang: 0, pow: 0, off: 0 };
+
+function fallingPens(pens, sides = [0, 1]) {
+  return pens.map((p, i) => ({
+    ...p,
+    x: sides.includes(i) ? 60 + p.r - 0.1 : 30,
+    y: i ? 80 : 20,
+    a: Math.PI / 2,
+    vx: sides.includes(i) ? 30 : 0,
+    vy: 0,
+    w: 0,
+    mu: 0,
+  }));
+}
 
 test("knock-off points follow both fallen pens, independently of the shooter", () => {
   assert.equal(roundOutcome(-1), null);
@@ -159,3 +176,157 @@ test("sliding and spinning falls record balance loss and finish landing, includi
   }
   assert.ok(falls > 50, "exercise actual falls across models and edges");
 });
+
+test("AI evaluation counts a shared fall as both a point and self-fall risk", () => {
+  const e = createGameEngine();
+  e.shoot = () => ({
+    out: 2,
+    pens: [{ out: true }, { out: true }],
+    hit: true,
+    minGap: 0,
+  });
+  for (const me of [0, 1]) {
+    const result = createShotEvaluator(e)({}, me, noFlick, { samples: 1 });
+    assert.equal(result.pSucc, 1);
+    assert.equal(result.pSelf, 1);
+    assert.equal(result.E, 0.5);
+  }
+});
+
+test("headless rounds and benchmarks award both points for a shared fall", async () => {
+  const e = createGameEngine();
+  e.decide = function* () {
+    return { action: noFlick };
+  };
+  e.shoot = () => ({ out: 2, pens: [{ out: true }, { out: true }], hit: true });
+  assert.deepEqual(e.runSync(e.playRound([{}, {}], { seed: 10 })), {
+    winner: -1,
+    points: [1, 1],
+    how: "out",
+    turns: 1,
+  });
+  const ui = createUiStore();
+  await createBenchmarkRunner(e, ui).run("dfs", "astar", 2, "advanced");
+  assert.deepEqual(ui.get().benchmark.result.wins, [2, 2]);
+});
+
+for (const replay of [true, false]) {
+  test(`shared fall updates both HUD scores and ends a tied match fairly, replay=${replay}`, async (t) => {
+    const f = controllerFixture(t);
+    f.ui.set({
+      settings: { ...f.ui.get().settings, replay },
+      preferences: {
+        ...f.ui.get().preferences,
+        pvp: { ...f.ui.get().preferences.pvp, goal: 1 },
+      },
+    });
+    const shoot = f.engine.shoot;
+    f.engine.shoot = (pens, who, _act, opts) =>
+      shoot(fallingPens(pens), who, noFlick, opts);
+    f.controller.start("pvp");
+    await f.advance(100);
+    const p = f.point();
+    f.pointer("pointerdown", p);
+    f.pointer("pointerup", { x: p.x + 600, y: p.y });
+    await f.advance(400);
+    assert.deepEqual(f.ui.get().scores, [1, 1]);
+    assert.deepEqual(f.world.board.scores, [1, 1]);
+    assert.equal(f.ui.get().end.title, "Match drawn");
+    assert.match(f.ui.get().end.subtitle, /1 – 1 · 1 rounds/);
+    assert.equal(f.ui.get().replaying, false);
+    assert.ok(f.world.students.every((s) => s.react.kind === "happy"));
+    f.controller.start("pvp");
+    await f.advance(100);
+    assert.deepEqual(f.ui.get().scores, [0, 0]);
+  });
+}
+
+test("a shared round below the goal advances play and preserves a later outright winner", async (t) => {
+  const f = controllerFixture(t);
+  f.ui.set({
+    settings: { ...f.ui.get().settings, replay: false },
+    preferences: {
+      ...f.ui.get().preferences,
+      pvp: { ...f.ui.get().preferences.pvp, goal: 2 },
+    },
+  });
+  const shoot = f.engine.shoot;
+  let shots = 0;
+  f.engine.shoot = (pens, who, _act, opts) =>
+    shoot(fallingPens(pens, shots++ ? [1] : [0, 1]), who, noFlick, opts);
+  f.controller.start("pvp");
+  await f.advance(100);
+  let p = f.point();
+  f.pointer("pointerdown", p);
+  f.pointer("pointerup", { x: p.x + 600, y: p.y });
+  await f.advance(200);
+  assert.deepEqual(f.ui.get().scores, [1, 1]);
+  assert.equal(f.ui.get().round, 2);
+  assert.equal(f.ui.get().turn.who, 1);
+  assert.equal(f.ui.get().end, null);
+  p = f.point(1);
+  f.pointer("pointerdown", p);
+  f.pointer("pointerup", { x: p.x + 600, y: p.y });
+  await f.advance(200);
+  assert.equal(shots, 2);
+  assert.deepEqual(f.ui.get().scores, [2, 1]);
+  assert.match(f.ui.get().end.title, /wins the series/);
+  assert.equal(f.ui.get().end.title, `${f.ui.get().names[0]} wins the series`);
+});
+
+for (const replay of ["off", "finish", "skip"]) {
+  test(`a landed pen never flashes back onto the desk, replay=${replay}`, async (t) => {
+    const f = controllerFixture(t, { stepMs: 1000 / 60, seed: 42 });
+    f.ui.set({
+      settings: { ...f.ui.get().settings, replay: replay !== "off" },
+      preferences: {
+        ...f.ui.get().preferences,
+        pvp: { ...f.ui.get().preferences.pvp, goal: 1 },
+      },
+    });
+    const shoot = f.engine.shoot;
+    f.engine.shoot = (pens, who, _act, opts) => {
+      const start = fallingPens(pens, [0]);
+      start[0].x = 59;
+      return shoot(start, who, noFlick, opts);
+    };
+    const seen = { live: [], replay: [], settled: [] };
+    f.world.render = () => {
+      const ui = f.ui.get();
+      const bucket = ui.replaying
+        ? "replay"
+        : ui.scores[1]
+          ? "settled"
+          : "live";
+      const pen = f.pens[0];
+      seen[bucket].push({ out: pen.out, hidden: pen.hidden || pen.landed });
+    };
+    f.controller.start("pvp");
+    await f.advance(110);
+    const point = f.point();
+    f.pointer("pointerdown", point);
+    f.pointer("pointerup", { x: point.x + 600, y: point.y });
+    for (let frame = 0; frame < 400 && !f.ui.get().end; frame++) {
+      await f.advance();
+      if (replay === "skip" && f.ui.get().replaying) f.controller.skipReplay();
+    }
+    assert.ok(f.ui.get().end);
+    const firstOut = seen.live.findIndex((frame) => frame.out);
+    assert.ok(firstOut >= 0, "the referee must see the visible fall");
+    assert.ok(
+      seen.live.slice(firstOut).every((frame) => frame.out),
+      "the frame that finishes live playback must never draw the pre-shot board",
+    );
+    assert.ok(seen.live.some((frame) => frame.out && !frame.hidden));
+    assert.ok(seen.live.at(-1).hidden);
+    assert.ok(seen.settled.every((frame) => frame.out && frame.hidden));
+    if (replay !== "off") {
+      assert.ok(seen.replay.length);
+      assert.ok(seen.replay.at(-1).hidden);
+    }
+    assert.equal(f.pens[1].out, false);
+    f.controller.start("pvp");
+    await f.advance(40);
+    assert.ok(f.pens.every((pen) => !pen.out && !pen.hidden));
+  });
+}

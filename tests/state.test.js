@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createUiStore, selectUiStore } from "../src/game/state/store.ts";
 import { createScope } from "../src/game/controller/scope.js";
+import { createBenchmarkRunner } from "../src/game/ai/benchmark.js";
 import { createGameEngine } from "../src/game/engine.js";
 import { hydrateState } from "../src/game/state/preferences.js";
 import { buildMatchOptions } from "../src/game/controller/modes.js";
@@ -231,6 +232,17 @@ test("unmount cleanup cancels frames, timers and listeners and resolves pending 
   assert.equal(calls, 0);
   assert.equal(frames.size, 0);
 });
+test("stopping a benchmark cancels further round publications", async () => {
+  const ui = createUiStore(),
+    runner = createBenchmarkRunner(createGameEngine(), ui);
+  const done = runner.run("dfs", "astar", 20, "beginner");
+  runner.stop();
+  const stopped = ui.get().benchmark;
+  await done;
+  assert.equal(ui.get().benchmark, stopped);
+  assert.equal(stopped.running, false);
+});
+
 test("persisted removed algorithms fall back to supported menu defaults", async (t) => {
   const { hydrateState } = await import("../src/game/state/preferences.js");
   const saved = {
@@ -256,6 +268,31 @@ test("persisted removed algorithms fall back to supported menu defaults", async 
   assert.equal(preferences.train.algorithm, "auto");
   assert.equal(preferences.ai.a, "astar");
   assert.equal(preferences.ai.b, "mcts");
+});
+
+test("completed benchmarks alternate the starting player and publish final totals", async () => {
+  const ui = createUiStore(),
+    starts = [];
+  const engine = createGameEngine();
+  engine.playRound = function* (configs, options) {
+    starts.push(options.first);
+    options.onDecision(0, 8);
+    options.onDecision(1, 12);
+    yield { roundInProgress: true, turns: 1 };
+    return {
+      winner: options.first,
+      points: options.first ? [0, 1] : [1, 0],
+      how: "out",
+      turns: 2,
+    };
+  };
+  await createBenchmarkRunner(engine, ui).run("dfs", "astar", 4, "advanced");
+  assert.deepEqual(starts, [0, 1, 0, 1]);
+  assert.equal(ui.get().benchmark.running, false);
+  assert.deepEqual(ui.get().benchmark.result.wins, [2, 2]);
+  assert.deepEqual(ui.get().benchmark.result.averageMs, [8, 12]);
+  assert.equal(ui.get().benchmark.result.done, 4);
+  assert.equal(ui.get().benchmark.result.outs, 4);
 });
 
 test("corrupt saved settings and unavailable storage recover to valid playable preferences", async (t) => {

@@ -10,8 +10,10 @@
 | `strategies/mcts.js`       | UCB selection, expansion, random rollout and backpropagation   |
 | `priority-queue.js`        | Shared minimum-priority queue                                  |
 | `catalog.js`               | Compatibility exports of resolved names and difficulty presets |
+| `benchmark.js`             | Cancellable headless match runner                              |
 | `evaluation.js`            | Physics-based shot scoring                                     |
 | `context.js`               | Per-search state, yielding, metrics and candidate summaries    |
+| `match.js`                 | Headless match simulation                                      |
 
 The search curriculum comes from the supplied Uninformed Search, Informed Search, Adversarial Search and MCTS slide decks.
 

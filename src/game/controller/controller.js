@@ -8,6 +8,7 @@ import { handAngle } from "@/features/character/motion.js";
 import * as THREE from "three";
 import { createScope } from "./scope.js";
 import { buildMatchOptions, penColorFor } from "./modes.js";
+import { createBenchmarkRunner } from "@/game/ai/benchmark.js";
 import { roundOutcome } from "../physics/outcome.js";
 import {
   CAMERA_PRESETS,
@@ -29,6 +30,7 @@ export function createController({
     clamp = PF.clamp,
     scope = createScope();
   let disposed = false;
+  const benchmark = createBenchmarkRunner(PF, ui);
   const size = { width: 1, height: 1 };
   function viewport() {
     if (canvas.clientWidth > 0 && canvas.clientHeight > 0) {
@@ -1468,6 +1470,7 @@ export function createController({
       : { ...settings, follow: gameConfig.settings.follow };
   }
   function openMenu() {
+    benchmark.stop(false);
     cancelAll();
     G.paused = false;
     Snd.setPaused(false);
@@ -1515,6 +1518,7 @@ export function createController({
   function begin(mode, options) {
     Snd.setPaused(false);
     Snd.init();
+    benchmark.stop(false);
     cancelAll();
     G.paused = false;
     G.mode = mode;
@@ -1805,10 +1809,12 @@ export function createController({
           false,
         );
     },
+    benchmark,
     dispose() {
       if (disposed) return;
       disposed = true;
-        cancelAll();
+      benchmark.stop(false);
+      cancelAll();
       unsubscribe();
       observer.disconnect();
       scope.dispose();

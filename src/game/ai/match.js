@@ -1,0 +1,42 @@
+import { gameConfig } from "../../config/config.ts";
+import { roundOutcome } from "../physics/outcome.js";
+/** Headless matches share the playable game’s physics and knock-off rule. */
+export function installHeadlessMatches(PF) {
+  const { rng, now, clamp } = PF._internals;
+  /* ================================================= headless match helpers */
+  PF.playRound = function* (cfgs, opts) {
+    opts = opts || {};
+    const r = rng(opts.seed ?? 1234);
+    const types = opts.types || ["ball", "gel"];
+    const state = PF.newState(types, r, opts.first || 0);
+    const mem = cfgs.map((cfg) => PF.newMemory(cfg.level ?? "advanced"));
+    let turns = 0;
+    // Exactly the same win condition as the playable game: knock a pen off.
+    // There is deliberately NO maximum number of flicks and NO centre tiebreak.
+    for (;;) {
+      const me = state.turn,
+        cfg = Object.assign({}, cfgs[me], {
+          mem: mem[me],
+          seed: (opts.seed ?? 1234) * 31 + turns,
+          budgetScale: opts.budgetScale,
+        });
+      const t0 = now();
+      const d = yield* PF.decide(state, me, cfg);
+      const dt = now() - t0;
+      if (opts.onDecision) opts.onDecision(me, dt, d.info);
+      const act = PF.noisy(d.action, cfgs[me].noise, r);
+      const res = PF.shoot(state.pens, me, act, {
+        maxT: gameConfig.physics.gameplaySimulationSeconds,
+      });
+      mem[me].conf = clamp(mem[me].conf + (res.hit ? 0.15 : -0.1), 0.05, 1);
+      state.pens = res.pens;
+      state.turn = 1 - me;
+      state.flicks[me]++;
+      turns++;
+      const outcome = roundOutcome(res.out);
+      if (outcome) return { ...outcome, turns };
+      // A yield per flick lets the browser repaint and the Stop button cancel.
+      yield { roundInProgress: true, turns };
+    }
+  };
+}

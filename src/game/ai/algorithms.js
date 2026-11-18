@@ -2,6 +2,7 @@ import { gameConfig } from "../../config/config.ts";
 import { createUninformedStrategy } from "./strategies/uninformed.js";
 import { createShotEvaluator } from "./evaluation.js";
 import { createSearchContext } from "./context.js";
+import { installHeadlessMatches } from "./match.js";
 import { createSearchStrategy } from "./strategies/search.js";
 import { createMinimaxStrategy } from "./strategies/minimax.js";
 import { createMctsStrategy } from "./strategies/mcts.js";
@@ -93,6 +94,7 @@ export function installAlgorithms(PF) {
     return a;
   };
 
+  installHeadlessMatches(PF);
 
   return PF;
 }
