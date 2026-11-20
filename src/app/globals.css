@@ -1,4 +1,9 @@
 @import "./fonts.css";
+@import "../features/game/ui/game.css";
+@import "../features/pen/ui/pen.css";
+@import "../features/game/ui/game-ui.css";
+@import "../features/game/ui/notebook-pages.css";
+@import "../features/pen/ui/pen-selection.css";
 :root {
   color-scheme: dark;
   font-family:

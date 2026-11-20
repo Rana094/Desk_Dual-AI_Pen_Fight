@@ -1,7 +1,9 @@
+import { GameCanvas } from "@/features/game/ui/GameCanvas";
+
 export default function HomePage() {
   return (
     <main className="app-shell">
-      <h1>Pen Fight Arena</h1>
+      <GameCanvas />
     </main>
   );
 }

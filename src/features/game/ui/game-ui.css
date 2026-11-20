@@ -1,0 +1,515 @@
+/* Shared notebook UI: keep these rules independent of OS light/dark preference. */
+.game-runtime {
+  color-scheme: light;
+  --fg: #263e54;
+  --muted: #626c77;
+  --line: #bcb9a4;
+  --chip: #f5ead2;
+  --accent: #a64743;
+  --accent-fg: #fffaf1;
+  --good: #237645;
+  color: var(--fg);
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+#pause .card,
+#end .card {
+  width: min(380px, 100%);
+  max-height: calc(100% - 32px);
+  overflow-y: auto;
+  padding: 24px;
+  background-color: #fffbed;
+  backdrop-filter: none;
+}
+.dialog-eyebrow {
+  color: #7a6854;
+  font: 600 10px/1.4 var(--mono);
+  letter-spacing: 0.12em;
+}
+#pause .card .mbtn,
+#end .card .mbtn {
+  min-height: 48px;
+  padding: 10px 12px;
+}
+#pause .card .mbtn:hover,
+#end .card .mbtn:hover {
+  background: #e8dec16b;
+  transform: none;
+}
+#pause .card .mbtn:focus-visible,
+#end .card .mbtn:focus-visible {
+  outline: 2px solid #386b92;
+  outline-offset: 2px;
+}
+#hud .score {
+  width: clamp(240px, 24vw, 300px);
+  min-width: 0;
+  padding: 5px 10px;
+  transform: none;
+}
+#hud .brand {
+  font-size: 13px;
+}
+#hud .brand small {
+  font-size: 12px;
+}
+#hud .score-heading {
+  font-size: 10px;
+  letter-spacing: 0.05em;
+}
+#hud .score .row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+#hud .score .nm {
+  max-width: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  overflow: visible;
+  text-overflow: clip;
+  font: 600 15px/1.2 var(--body);
+}
+#hud .score .pt {
+  font: 700 24px/1.1 var(--body);
+}
+#hud .score small {
+  font: 500 12px/1.25 var(--body);
+}
+#hud .tb,
+#bottom .tb,
+#speedBox select {
+  font: 600 14px/1.25 var(--body);
+  min-height: 40px;
+  padding: 6px 8px;
+  gap: 4px;
+}
+#hud .tb-icon,
+#bottom .tb-icon {
+  font-size: 14px;
+}
+#hud .tb::after,
+#bottom .tb::after,
+#hud .tb[aria-pressed="true"]::before,
+#bottom .tb[aria-pressed="true"]::before {
+  display: none;
+}
+#speedBox {
+  position: relative;
+  flex: none;
+}
+#hud #speedBox select {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 64px;
+  height: 40px;
+  min-height: 40px;
+  padding: 6px 23px 6px 9px;
+  line-height: 1.25;
+}
+.speed-chevron {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+#bottom #turn {
+  font: 600 14px/1.3 var(--body);
+  padding: 6px 12px;
+  transform: none;
+}
+#think {
+  font: 500 14px/1.3 var(--body);
+  padding: 5px 8px;
+}
+#flick-guide {
+  width: 150px;
+  left: 12px;
+  bottom: 60px;
+}
+#flick-guide #pw {
+  padding: 6px 8px;
+}
+#flick-guide #pw .t {
+  font: 500 13px/1.3 var(--body);
+}
+#flick-guide #pw .b {
+  height: 7px;
+}
+#banner.on #bnT {
+  font-size: clamp(24px, 5vw, 36px);
+}
+#banner.on #bnS {
+  font-size: 14px;
+}
+#speedBox select {
+  color-scheme: light;
+}
+#lab .lh label {
+  flex: 1;
+  min-width: 0;
+}
+#lab .lh select {
+  width: 100%;
+}
+#bottom {
+  padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+}
+#lab .lh,
+#lab .stats,
+#lab .info,
+#lab .tabs {
+  flex-shrink: 0;
+}
+#lab .info {
+  max-height: 100px;
+  overflow-y: auto;
+}
+#lab .lh {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.benchmark-actions {
+  flex-wrap: wrap;
+}
+@media (min-width: 761px) and (orientation: landscape) {
+  .lab-on #hud {
+    right: 420px;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .lab-on #hud .brand {
+    display: none;
+  }
+  .lab-on #hud .score {
+    width: min(260px, 100%);
+    min-width: 0;
+  }
+  .lab-on #hud .tools {
+    max-width: none;
+    flex-wrap: nowrap;
+  }
+  .lab-on #bottom {
+    right: 420px;
+  }
+  .lab-on .camera-controls {
+    right: 432px;
+  }
+  .lab-on #think {
+    left: calc((100% - 420px) / 2);
+    max-width: calc(100% - 452px);
+  }
+  .lab-on #banner {
+    left: calc((100% - 420px) / 2);
+    width: calc(100% - 452px);
+  }
+}
+@media (max-width: 1100px) and (min-width: 761px) and (orientation: landscape) {
+  #hud {
+    grid-template-columns: auto 1fr;
+  }
+  #hud .brand {
+    display: none;
+  }
+  .lab-on #hud {
+    grid-template-columns: 1fr;
+  }
+  .lab-on #hud .tools {
+    max-width: none;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+  .lab-on #think {
+    top: 170px;
+  }
+}
+@media (min-width: 1101px) and (max-width: 1180px) and (orientation: landscape) {
+  .lab-on #hud {
+    grid-template-columns: 1fr;
+  }
+  .lab-on #hud .tools {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+}
+@media (max-width: 760px), (orientation: portrait) {
+  #hud {
+    gap: 5px;
+    padding: 8px;
+  }
+  #hud .tools {
+    gap: 5px;
+  }
+  #bottom {
+    align-items: flex-start;
+  }
+  #bottom #turn {
+    max-width: calc(100vw - 145px);
+    font-size: 14px;
+  }
+  #flick-guide {
+    bottom: 100px;
+  }
+  #hud .score {
+    width: min(280px, 100%);
+  }
+  .lab-on #bottom,
+  .lab-on #think,
+  .lab-on .camera-controls {
+    visibility: hidden;
+  }
+  #pause .card,
+  #end .card {
+    transform: none;
+    padding: 18px;
+  }
+  #pause .card h2,
+  #end .card h2 {
+    font-size: 26px;
+  }
+  #lab .info {
+    max-height: 56px;
+  }
+  #lab .lh {
+    padding: 7px 10px 7px 20px;
+  }
+  #lab .stats {
+    padding: 5px 10px 5px 20px;
+  }
+  #lab .info {
+    padding: 5px 10px 5px 20px;
+  }
+  #lab .pane {
+    padding-left: 20px;
+  }
+  #menu input,
+  #menu select {
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 370px) {
+  #hud .tools {
+    gap: 4px;
+  }
+  #hud .tb {
+    min-height: 38px;
+    padding: 6px 5px;
+    gap: 3px;
+    font-size: 13px;
+  }
+  #hud .tb-icon {
+    font-size: 13px;
+  }
+  #hud #speedBox select {
+    width: 58px;
+    height: 38px;
+    min-height: 38px;
+    padding: 5px 19px 5px 6px;
+    font-size: 13px;
+  }
+  .speed-chevron {
+    right: 5px;
+  }
+}
+
+@media (max-height: 480px) and (orientation: landscape) and (max-width: 760px) {
+  #lab {
+    height: 38%;
+  }
+  #lab .stats,
+  #lab .info {
+    display: none;
+  }
+  #lab .tabs button {
+    font-size: 13px;
+  }
+}
+
+/* A compact type scale for the notebook menus and panels. */
+#menu .title {
+  font-size: clamp(30px, 5vw, 42px);
+}
+#menu .lead {
+  font-size: 16px;
+  line-height: 1.35;
+}
+#menu .mbtn > span:first-child {
+  font-size: 20px;
+}
+#menu .mbtn {
+  font-size: 18px;
+}
+#menu .mbtn small {
+  font-size: 13px;
+}
+#menu h3 {
+  font-size: 18px;
+}
+#menu .chips button span {
+  font-size: 16px;
+}
+#menu .chips button small {
+  font-size: 12px;
+}
+#menu .f,
+#menu .sw {
+  font-size: 14px;
+}
+#menu .sw.settings-toggle {
+  font-size: 20px;
+  line-height: 1.3;
+  min-height: 48px;
+  gap: 12px;
+}
+#menu .settings-toggle input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+}
+#lab .tabs button,
+#lab .btn {
+  font: 600 13px/1.3 var(--body);
+  min-height: 34px;
+}
+#pause .card h2,
+#end .card h2 {
+  font-size: 26px;
+}
+#pause .card .mbtn,
+#end .card .mbtn {
+  font: 600 16px/1.3 var(--body);
+  min-height: 44px;
+  width: 100%;
+  justify-content: center;
+}
+#pause .card,
+#end .card {
+  transform: none;
+}
+#pause .card p,
+#end .card p {
+  font: 400 15px/1.5 var(--body);
+}
+
+/* A sticky note with faint khata ruling behind the handwritten menu. */
+#pause .card {
+  position: relative;
+  width: min(300px, 100%);
+  gap: 4px;
+  padding: 28px 28px 34px;
+  border: 0;
+  border-radius: 3px 3px 9px 3px;
+  background-image:
+    linear-gradient(
+      to right,
+      transparent 23px,
+      rgba(185, 83, 78, 0.16) 24px,
+      transparent 25px
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0 43px,
+      rgba(72, 126, 163, 0.13) 44px,
+      transparent 45px
+    ),
+    linear-gradient(112deg, #fffef5, #fbf4df 72%, #f1e3be);
+  box-shadow:
+    3px 5px 0 rgba(111, 92, 63, 0.16),
+    12px 18px 35px rgba(19, 20, 17, 0.33);
+  transform: rotate(-1.5deg);
+}
+#pause .card::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 24px;
+  height: 24px;
+  background: linear-gradient(135deg, #e5d3af, #faf0db);
+  clip-path: polygon(0 100%, 100% 0, 100% 100%);
+  pointer-events: none;
+}
+#pause .card h2 {
+  margin: 0 0 10px;
+  padding: 0;
+  color: #aa463c;
+  font:
+    400 36px/1 "Patrick Hand",
+    "Segoe Print",
+    sans-serif;
+  text-align: center;
+}
+#pause .card .mbtn {
+  justify-content: center;
+  min-height: 44px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #2d4c72;
+  font:
+    400 23px/1.2 "Patrick Hand",
+    "Segoe Print",
+    sans-serif;
+  text-align: center;
+  box-shadow: none;
+  transition: background 0.15s ease;
+}
+#pause .card .mbtn::after {
+  display: none;
+}
+#pause .card .mbtn.primary {
+  color: #9d3f37;
+  text-decoration: underline;
+  text-decoration-color: rgba(177, 76, 61, 0.38);
+  text-underline-offset: 4px;
+}
+#pause .card .mbtn:hover {
+  background: rgba(255, 255, 255, 0.27);
+  transform: none;
+}
+#pause .card .mbtn.primary:hover {
+  background: rgba(255, 255, 255, 0.23);
+}
+#pause .card .mbtn:active {
+  background: rgba(128, 101, 65, 0.14);
+}
+@media (max-height: 500px) {
+  #lab {
+    overflow-y: auto;
+  }
+  #lab .info {
+    max-height: 56px;
+  }
+  #lab .pane {
+    flex: 1 0 180px;
+  }
+  #pause .card,
+  #end .card {
+    transform: none;
+  }
+  #banner {
+    top: 66%;
+  }
+  #banner.on #bnT {
+    font-size: 28px;
+  }
+  #banner.on #bnS {
+    font-size: 16px;
+  }
+  .lab-on #think {
+    visibility: hidden;
+  }
+}
