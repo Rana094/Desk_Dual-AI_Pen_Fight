@@ -27,6 +27,8 @@ Shot evaluation uses the same time limit and noise model as normal play, and rep
 
 Strategies receive engine/context helpers explicitly and return actions plus inspection data. Yield through `slice(ctx)` inside long searches, keep random seeds explicit in tests, and preserve the same knock-off rule in playable and headless matches.
 
+Presentation lives in `src/features/ai-lab/ui`, including `draw-tree.js` and `descriptions.ts`. Game menus and controls live in `src/features/game/ui`. UI may consume AI data; AI modules must not import UI modules or use DOM/canvas APIs. `tests/ai-boundaries.test.js` guards this boundary.
+
 `src/config/ai.ts` owns labels, accuracy/noise/mistakes, think times, search goals/budgets, and benchmark initial values. The resolved values arrive through `config.ts` and compatibility exports in `catalog.js`. Think time is a minimum in milliseconds of animation time. AI Battle caps the minimum at `playback.battleThinkLimit` seconds. A configured zero adds no wait. Search runs to completion and yields cooperatively. Per-decision options can override budget defaults. Shared pen and physics tuning comes from their own configuration sections.
 
 Search behavior is covered by [search tests](../../../tests/ai-search.test.js) and [boundary tests](../../../tests/ai-boundaries.test.js). When adding an algorithm, update its default, validation, strategy, inspector description, and tests together.

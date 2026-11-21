@@ -29,7 +29,9 @@ export function createController({
   const V3 = THREE.Vector3,
     clamp = PF.clamp,
     scope = createScope();
-  let disposed = false;
+  let disposed = false,
+    labDirty = true,
+    hintRequest = 0;
   const benchmark = createBenchmarkRunner(PF, ui);
   const size = { width: 1, height: 1 };
   function viewport() {
@@ -1138,9 +1140,9 @@ export function createController({
     for (;;) {
       r = gen.next();
       if (r.done) break;
-
+      G.live = r.value;
       setThink(who, cfg);
-
+      labDirty = true;
       if (location.hash === "#fast") continue;
       await nextFrame();
       while (G.paused) {
@@ -1165,8 +1167,8 @@ export function createController({
       chk(tok);
     }
     const out = r.value;
-
-
+    G.live = out.info;
+    labDirty = true;
     const act = Object.assign(
       {},
       noiseless ? out.action : PF.noisy(out.action, cfg.noise, playRng),
@@ -1438,6 +1440,18 @@ export function createController({
     showEnd(title, sub, youWon);
   }
 
+  function setLab(on) {
+    const open = !!on && G.mode !== "pvp";
+    G.labOpen = open;
+    ui.set({ labOpen: open });
+    if (open) labDirty = true;
+  }
+  function publishDecision() {
+    if (G.live && G.labOpen)
+      ui.set({
+        live: structuredClone(G.live),
+      });
+  }
   function syncSurge() {
     ui.set({
       surge: {
@@ -1575,6 +1589,7 @@ export function createController({
       setCameraPinned(true);
       C.pinnedDeskView = true;
     }
+    setLab(!!options.lab);
     syncSurgeUI();
     syncBoard();
     void matchLoop();
@@ -1647,15 +1662,79 @@ export function createController({
       return;
     }
     if (/INPUT|SELECT|TEXTAREA/.test(event.target?.tagName || "")) return;
+    if (
+      (event.key === "l" || event.key === "L") &&
+      G.mode !== "menu" &&
+      !G.paused
+    )
+      setLab(!G.labOpen);
   });
   scope.listen(window, "blur", pause);
   scope.listen(document, "visibilitychange", () => {
     if (document.hidden) pause();
   });
   function clearHint() {
+    hintRequest++;
     G.hint = null;
     World.showHints(null);
     ui.set({ hintBusy: false, hintAvailable: false });
+  }
+  async function requestHint() {
+    if (
+      G.mode !== "train" ||
+      G.paused ||
+      G.input?.who !== 0 ||
+      G.input.active ||
+      ui.get().hintBusy
+    )
+      return;
+    const tok = G.token,
+      input = G.input,
+      request = ++hintRequest;
+    const current = () =>
+      tok === G.token &&
+      request === hintRequest &&
+      G.input === input &&
+      !input.active &&
+      !G.paused;
+    const algo = ui.get().labAlgo;
+    const cfg = { algo, noise: null, mem: PF.newMemory("expert") };
+    const gen = PF.decide(G.state, 0, Object.assign({}, cfg, { seed: 5 }));
+    let r;
+    ui.set({ hintBusy: true });
+    try {
+      for (;;) {
+        if (!current()) return;
+        r = gen.next();
+        if (r.done) break;
+        G.live = r.value;
+        labDirty = true;
+        await nextFrame();
+      }
+      if (!current()) return;
+      G.live = r.value.info;
+      G.hint = r.value;
+      labDirty = true;
+      ui.set({ hintBusy: false });
+      ui.set({ hintAvailable: true });
+      const pen = G.state.pens[0];
+      World.showHints(
+        (r.value.info.moves || []).slice(0, 5).map((m) => {
+          const c = contactOf(pen, m.act.off || 0);
+          return {
+            x: c.x - Math.cos(m.act.ang) * 0,
+            y: c.y,
+            ang: m.act.ang,
+            pow: m.act.pow,
+            score: m.score,
+            selected: m.selected,
+          };
+        }),
+      );
+    } finally {
+      gen.return();
+      if (request === hintRequest) ui.set({ hintBusy: false });
+    }
   }
   /* ------------------------------------------------------------- main loop */
   const perf = { acc: 0, n: 0, low: 0, cool: 0 };
@@ -1730,6 +1809,11 @@ export function createController({
       /* keep hint arrows */
     } else if (!G.input) World.showHints(null);
     updateCamera(dt);
+    if (labDirty && performance.now() - (frame.lt || 0) > 110) {
+      frame.lt = performance.now();
+      labDirty = false;
+      publishDecision();
+    }
     World.render();
   }
   openMenu();
@@ -1747,6 +1831,12 @@ export function createController({
       Snd.init();
       Snd.page();
       ui.set({ view });
+    },
+    toggleLab() {
+      setLab(!G.labOpen);
+    },
+    closeLab() {
+      setLab(false);
     },
     toggleSurge() {
       if (surgeAvail(0)) {
@@ -1808,6 +1898,23 @@ export function createController({
           preset,
           false,
         );
+    },
+    requestHint() {
+      setLab(true);
+      return requestHint();
+    },
+    applyHint() {
+      if (G.paused || G.input?.who !== 0 || G.input.active || !G.hint) return;
+      const action = { ...G.hint.action },
+        input = G.input;
+      G.input = null;
+      clearHint();
+      ui.set({ hintReady: false });
+      input.res({
+        act: action,
+        contact: contactOf(G.state.pens[0], action.off || 0),
+        fromPull: false,
+      });
     },
     benchmark,
     dispose() {

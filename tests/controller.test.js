@@ -164,6 +164,28 @@ test("Escape opens and closes the game menu from a focused input without repeat 
   assert.equal(f.ui.get().paused, false);
 });
 
+test("AI Log stays closed in Two Players, including the L shortcut", (t) => {
+  const f = controllerFixture(t);
+  const pressLogShortcut = () => {
+    const event = new Event("keydown", { cancelable: true });
+    Object.assign(event, { key: "l" });
+    f.window.dispatchEvent(event);
+  };
+
+  f.controller.start("pvp");
+  pressLogShortcut();
+  assert.equal(f.ui.get().labOpen, false);
+  f.controller.toggleLab();
+  assert.equal(f.ui.get().labOpen, false);
+
+  f.controller.start("vs");
+  pressLogShortcut();
+  assert.equal(f.ui.get().labOpen, true);
+
+  f.controller.start("pvp");
+  assert.equal(f.ui.get().labOpen, false);
+});
+
 test("Follow resets when leaving or starting a match", (t) => {
   const f = controllerFixture(t);
   f.controller.start("pvp");
@@ -228,6 +250,72 @@ test("secondary mouse buttons do not begin a flick", async (t) => {
   f.pointer("pointerdown", f.point(), { button: 2 });
   assert.equal(f.ui.get().power, null);
   assert.equal(f.captured.size, 0);
+});
+
+for (const interruption of [
+  "menu",
+  "new match",
+  "algorithm",
+  "pause",
+  "manual shot",
+]) {
+  test(`a pending hint cannot publish after ${interruption}`, async (t) => {
+    const f = controllerFixture(t);
+    f.controller.start("train");
+    await f.advance(100);
+    const action = { ang: 0, pow: 0.5, off: 0 };
+    f.engine.decide = function* () {
+      yield { algo: "astar", stats: {}, moves: [], nodes: [] };
+      return {
+        action,
+        info: { algo: "astar", stats: {}, moves: [{ act: action }], nodes: [] },
+      };
+    };
+    const hint = f.controller.requestHint();
+    assert.equal(f.ui.get().hintBusy, true);
+    if (interruption === "menu") f.controller.openMenu();
+    if (interruption === "new match") f.controller.start("train");
+    if (interruption === "algorithm") f.controller.changeAlgorithm("dfs");
+    if (interruption === "pause") f.controller.pause();
+    if (interruption === "manual shot") {
+      const p = f.point();
+      f.pointer("pointerdown", p);
+      f.pointer("pointerup", { x: p.x + 100, y: p.y + 80 });
+    }
+    await f.advance(2);
+    await hint;
+    assert.equal(f.ui.get().hintAvailable, false);
+    assert.equal(f.ui.get().hintBusy, false);
+    assert.equal(f.hints.length, 0);
+  });
+}
+
+test("hint application plays once and cannot be used during the AI turn", async (t) => {
+  const f = controllerFixture(t);
+  f.controller.start("train");
+  await f.advance(100);
+  const hint = f.controller.requestHint();
+  await f.advance(100);
+  await hint;
+  assert.equal(f.ui.get().hintAvailable, true);
+  f.controller.applyHint();
+  f.controller.applyHint();
+  assert.equal(f.ui.get().hintReady, false);
+  assert.equal(f.ui.get().hintAvailable, false);
+  await f.advance(40);
+  assert.equal(f.shots.length, 1);
+  await f.controller.requestHint();
+  assert.equal(f.ui.get().hintAvailable, false);
+});
+
+test("live decisions do not overwrite the selected algorithm or AI score labels", async (t) => {
+  const f = controllerFixture(t);
+  f.controller.start("aivai");
+  await f.advance(35);
+  f.controller.changeAlgorithm("dfs");
+  await f.advance(50);
+  assert.equal(f.ui.get().labAlgo, "dfs");
+  assert.equal(f.ui.get().names[0], "DFS");
 });
 
 test("returning to the menu cancels playback and resets transient UI", async (t) => {

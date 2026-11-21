@@ -16,6 +16,8 @@ export interface GameController {
   back(): void;
   changeAlgorithm(algo: Algorithm): void;
   showView(view: MenuView): void;
+  toggleLab(): void;
+  closeLab(): void;
   toggleSurge(): void;
   skipReplay(): void;
   setSpeed(speed: number): void;
@@ -26,6 +28,8 @@ export interface GameController {
   setCameraZoom(zoom: number): void;
   resetCamera(): void;
   setCameraPinned(pinned: boolean): void;
+  requestHint(): Promise<void>;
+  applyHint(): void;
   dispose(): void;
   benchmark: {
     run(

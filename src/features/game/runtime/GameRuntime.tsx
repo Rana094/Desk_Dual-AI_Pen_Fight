@@ -1,6 +1,17 @@
 "use client";
 import { GameProvider, useGameState } from "./GameProvider";
 import { GameScene } from "./GameScene";
+import dynamic from "next/dynamic";
+const AiLab = dynamic(
+  () => import("@/features/ai-lab/ui/AiLab").then((module) => module.AiLab),
+  {
+    loading: () => (
+      <aside id="lab" aria-label="AI Lab">
+        <p role="status">Loading AI Lab…</p>
+      </aside>
+    ),
+  },
+);
 import { GameControls } from "@/features/game/ui/GameControls";
 import { GameFeedback } from "@/features/game/ui/GameFeedback";
 import { GameHud } from "@/features/game/ui/GameHud";
@@ -10,6 +21,7 @@ import { GameLoading } from "@/features/game/ui/GameLoading";
 function GameSurface() {
   const state = useGameState([
     "replaying",
+    "labOpen",
     "mode",
     "ready",
     "error",
@@ -17,10 +29,11 @@ function GameSurface() {
     "end",
     "menuVisible",
   ]);
+  const showLab = state.mode !== "pvp" && state.labOpen;
   return (
     <div
       id="app"
-      className={`game-runtime${state.replaying ? " replay" : ""}`}
+      className={`game-runtime${state.replaying ? " replay" : ""}${showLab ? " lab-on" : ""}`}
       data-mode={state.mode}
     >
       <GameScene />
@@ -29,6 +42,7 @@ function GameSurface() {
         <GameHud />
         <GameFeedback />
         <GameControls />
+        {showLab && <AiLab />}
       </div>
       <GameMenu />
       <GameModals />
