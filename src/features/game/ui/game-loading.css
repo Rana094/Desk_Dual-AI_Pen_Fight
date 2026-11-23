@@ -1,0 +1,119 @@
+.runtime-status.game-loading {
+  overflow: auto;
+  padding: 16px;
+  background:
+    radial-gradient(ellipse at center, #252e2a, transparent 65%), #1b211f;
+}
+
+.game-loading-content {
+  width: min(100%, 360px);
+  text-align: center;
+}
+
+.game-loading-arena {
+  position: relative;
+  width: min(100%, 50dvh);
+  aspect-ratio: 12 / 7;
+  margin: 0 auto 16px;
+}
+
+.game-loading-arena::before {
+  content: "";
+  position: absolute;
+  inset: 19% 3%;
+  border: 1px solid #b0c4b530;
+  border-radius: 50%;
+  transform: rotate(-18deg);
+}
+
+.game-loading-pen {
+  position: absolute;
+  width: 50%;
+  filter: drop-shadow(0 7px 6px #0006);
+}
+
+.game-loading-pen svg {
+  display: block;
+  width: 100%;
+  overflow: visible;
+}
+
+.game-loading-pen--blue {
+  top: 72%;
+  left: 25%;
+  color: #488ff0;
+  transform: translate(-50%, -50%) rotate(-28deg);
+}
+
+.game-loading-pen--orange {
+  top: 28%;
+  left: 75%;
+  color: #f58c4e;
+  transform: translate(-50%, -50%) rotate(152deg);
+}
+
+.game-loading-title {
+  margin: 0;
+  color: #f7f4eb;
+  font: italic 800 clamp(36px, 8vw, 46px) / 1 var(--display);
+  letter-spacing: -0.055em;
+}
+
+.game-loading-title > span:first-child {
+  color: #70a9ff;
+}
+
+.game-loading-subtitle {
+  display: block;
+  margin-top: 10px;
+  color: #aab9b0;
+  font: 600 10px / 1 var(--body);
+  letter-spacing: 0.4em;
+  text-indent: 0.4em;
+  text-transform: uppercase;
+}
+
+.game-loading-status {
+  margin-top: clamp(18px, 4dvh, 32px);
+  color: #d9e0db;
+  font: 400 13px / 1.5 var(--body);
+}
+
+.game-loading-status > p {
+  margin: 0 0 12px;
+}
+
+.game-loading-track {
+  display: block;
+  width: 112px;
+  height: 3px;
+  margin-inline: auto;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #ffffff1a;
+}
+
+.game-loading-track::after {
+  content: "";
+  display: block;
+  width: 34%;
+  height: 100%;
+  border-radius: inherit;
+  background: #70a9ff;
+  animation: game-loading-sweep 1.7s ease-in-out infinite alternate;
+}
+
+@keyframes game-loading-sweep {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(194%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-loading-track::after {
+    animation: none;
+  }
+}

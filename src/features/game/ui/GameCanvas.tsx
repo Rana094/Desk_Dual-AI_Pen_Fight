@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { preload } from "react-dom";
 import dynamic from "next/dynamic";
+import { GameLoading } from "./GameLoading";
+import {
+  MATADOR_MODEL_URL,
+  SMOOTHY_MODEL_URL,
+  ALL_TIME_MODEL_URL,
+  I_TEEN_MODEL_URL,
+} from "@/features/pen/models/assets.js";
 const GameRuntime = dynamic(
   () =>
     import("@/features/game/runtime/GameRuntime").then(
@@ -9,10 +17,21 @@ const GameRuntime = dynamic(
     ),
   {
     ssr: false,
+    loading: () => <GameLoading />,
   },
 );
 
 export function GameCanvas() {
+  // React emits deduplicated hints during prerender, ahead of game hydration.
+  preload(MATADOR_MODEL_URL, { as: "fetch", crossOrigin: "anonymous" });
+  preload(SMOOTHY_MODEL_URL, { as: "fetch", crossOrigin: "anonymous" });
+  preload(ALL_TIME_MODEL_URL, { as: "fetch", crossOrigin: "anonymous" });
+  preload(I_TEEN_MODEL_URL, { as: "fetch", crossOrigin: "anonymous" });
+  preload("/fonts/patrick-hand-latin.42156e008dd5.woff2", {
+    as: "font",
+    type: "font/woff2",
+    crossOrigin: "anonymous",
+  });
   const area = useRef<HTMLElement>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const [supported, setSupported] = useState(false);

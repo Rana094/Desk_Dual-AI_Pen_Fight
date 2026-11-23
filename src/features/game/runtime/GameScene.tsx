@@ -92,7 +92,7 @@ export function GameScene() {
         if (active)
           ui.set({
             error:
-              "Could not load the Matador pen model.",
+              "Could not load the Matador pen model. Please reload the game.",
           });
       });
     return () => {
