@@ -16,7 +16,7 @@ export interface PenSelection {
   colors: Partial<Record<PenKind, string>>;
 }
 export interface GamePreferences {
-  vs: PenSelection & { difficulty: Difficulty };
+  vs: PenSelection & { difficulty: Difficulty; goal: number };
   train: PenSelection & {
     difficulty: Difficulty;
     algorithm: Algorithm | "auto";
@@ -25,6 +25,7 @@ export interface GamePreferences {
     a: Algorithm;
     b: Algorithm;
     speed: number;
+    goal: number;
     penA: PenSelection;
     penB: PenSelection;
   };

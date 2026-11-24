@@ -54,10 +54,12 @@ test("every mode defaults to Matador High School and preserves saved pen choices
   }
   const preferences = structuredClone(fresh.get().preferences);
   preferences.vs.pen = "gel";
+  preferences.vs.goal = 5;
   preferences.train.pen = "matador_smoothy";
   preferences.ai.penA.pen = "matador_all_time";
   preferences.ai.penB.pen = "matador_i_teen";
   preferences.ai.penA.colors.matador_all_time = "#235bd1";
+  preferences.ai.goal = 1;
   preferences.pvp.pen1.pen = "matador_smoothy";
   preferences.pvp.pen2.pen = "gel";
   preferences.pvp.pen1.colors.matador_smoothy = "#123456";
@@ -77,6 +79,24 @@ test("every mode defaults to Matador High School and preserves saved pen choices
       expected,
     );
   }
+  assert.equal(
+    buildMatchOptions(
+      engine,
+      returning.get().settings,
+      returning.get().preferences,
+      "vs",
+    ).goal,
+    5,
+  );
+  assert.equal(
+    buildMatchOptions(
+      engine,
+      returning.get().settings,
+      returning.get().preferences,
+      "aivai",
+    ).goal,
+    1,
+  );
 });
 
 for (const removedPen of ["premium", "heavy"]) {
@@ -132,12 +152,14 @@ test("coercible arrays in saved pen, difficulty, algorithm and colour fields can
     vs: {
       pen: ["ball"],
       difficulty: ["expert"],
+      goal: [5],
       colors: { ball: ["#aabbcc"] },
     },
     train: { algorithm: ["mcts"] },
     ai: {
       a: ["mcts"],
       b: ["astar"],
+      goal: [1],
       sa: "beginner",
       sb: "beginner",
       penA: { pen: ["premium"] },
@@ -160,10 +182,12 @@ test("coercible arrays in saved pen, difficulty, algorithm and colour fields can
   assert.deepEqual(ui.get().preferences.vs, {
     pen: "matador_hs",
     difficulty: "advanced",
+    goal: 3,
     colors: {},
   });
   assert.equal(ui.get().preferences.ai.a, "astar");
   assert.equal(ui.get().preferences.ai.b, "mcts");
+  assert.equal(ui.get().preferences.ai.goal, 5);
   assert.equal(Object.hasOwn(ui.get().preferences.ai, "sa"), false);
   assert.equal(Object.hasOwn(ui.get().preferences.ai, "sb"), false);
   assert.equal(ui.get().preferences.train.algorithm, "auto");
@@ -198,7 +222,7 @@ test("separate providers keep selections independent", () => {
   a.set({
     preferences: {
       ...a.get().preferences,
-      vs: { pen: "gel", colors: {}, difficulty: "beginner" },
+      vs: { pen: "gel", colors: {}, difficulty: "beginner", goal: 1 },
     },
   });
   assert.equal(b.get().preferences.vs.pen, "matador_hs");

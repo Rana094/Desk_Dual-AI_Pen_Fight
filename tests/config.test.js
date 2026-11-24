@@ -114,8 +114,8 @@ test("unsafe physics, camera, graphics, and AI settings cannot enter the game", 
     graphics: { exposure: Infinity, quality: { high: { shadowMap: 1000 } } },
     input: { penSafetyTouch: 0 },
     preferences: {
-      ai: { a: "removed", speed: 7 },
-      vs: { pen: "missing", difficulty: "impossible" },
+      ai: { a: "removed", speed: 7, goal: 99 },
+      vs: { pen: "missing", difficulty: "impossible", goal: -1 },
       pvp: { goal: -1 },
     },
   };
@@ -238,15 +238,22 @@ test("saved player choices win over environment defaults, including legacy selec
   const env = {
     NEXT_PUBLIC_GAME_VOLUME: "0.3",
     NEXT_PUBLIC_GAME_DEFAULT_PEN: "ball",
+    NEXT_PUBLIC_GAME_VS_GOAL: "5",
+    NEXT_PUBLIC_GAME_AI_GOAL: "3",
   };
   const result = probe(env, {
     "pfa.settings": { vol: 0.9 },
-    "pfa.preferences": { vs: { pen: "gel", difficulty: "beginner" } },
+    "pfa.preferences": {
+      vs: { pen: "gel", difficulty: "beginner", goal: 1 },
+      ai: { goal: 1 },
+    },
   });
   assert.equal(result.settings.vol, 0.9);
   assert.equal(result.volume, 0.3);
   assert.equal(result.preferences.vs.pen, "gel");
   assert.equal(result.preferences.vs.difficulty, "beginner");
+  assert.equal(result.vs.goal, 1);
+  assert.equal(result.ai.goal, 1);
   assert.equal(probe(env, { "pfa.pen": "premium" }).preferences.vs.pen, "ball");
 });
 

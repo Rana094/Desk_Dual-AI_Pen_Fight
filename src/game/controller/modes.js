@@ -49,7 +49,7 @@ export function buildMatchOptions(PF, settings, preferences, mode) {
       goal:
         mode === "train"
           ? gameConfig.matches.trainingGoal
-          : gameConfig.matches.versusGoal,
+          : (selection.goal ?? gameConfig.matches.versusGoal),
       ai: [
         null,
         aiConfigFor(PF, { level: selection.difficulty, algo: algorithm }),
@@ -85,10 +85,10 @@ export function buildMatchOptions(PF, settings, preferences, mode) {
     names: [PF.SHORT[a.a], PF.SHORT[a.b] + (a.a === a.b ? " (2)" : "")],
     pens: [a.penA.pen, a.penB.pen],
     penColors: [penColorFor(PF, a.penA), penColorFor(PF, a.penB)],
-    goal: gameConfig.matches.aiGoal,
+    goal: a.goal ?? gameConfig.matches.aiGoal,
     ai: [battleAi(a.a), battleAi(a.b)],
     title: "AI vs AI Simulation",
-    lab: true,
+    lab: false,
     speed: a.speed,
     ties: [0x1f3fa0, 0x8a1f2c],
     note: "Each AI has its own selected pen.",

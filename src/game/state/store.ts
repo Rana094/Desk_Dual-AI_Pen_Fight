@@ -1,8 +1,23 @@
-import { gameConfig } from "../../config/config.ts";
+import { defaultGameConfig, gameConfig } from "../../config/config.ts";
 import type { GameUiState } from "./types";
 export const defaultSettings = gameConfig.settings;
 export const defaultPreferences = gameConfig.preferences;
+function initialPreferences() {
+  const preferences = structuredClone(defaultPreferences);
+  if (
+    gameConfig.matches.versusGoal !== defaultGameConfig.matches.versusGoal &&
+    gameConfig.preferences.vs.goal === defaultGameConfig.preferences.vs.goal
+  )
+    preferences.vs.goal = gameConfig.matches.versusGoal;
+  if (
+    gameConfig.matches.aiGoal !== defaultGameConfig.matches.aiGoal &&
+    gameConfig.preferences.ai.goal === defaultGameConfig.preferences.ai.goal
+  )
+    preferences.ai.goal = gameConfig.matches.aiGoal;
+  return preferences;
+}
 export function createUiStore() {
+  const preferences = initialPreferences();
   let state: GameUiState = {
     speed: 1,
     ready: false,
@@ -17,7 +32,7 @@ export function createUiStore() {
     names: ["You", "AI"],
     scores: [0, 0],
     round: 1,
-    goal: gameConfig.matches.versusGoal,
+    goal: preferences.vs.goal,
     title: "",
     human: true,
     turn: { label: "", who: 0 },
@@ -41,7 +56,7 @@ export function createUiStore() {
     hintAvailable: false,
     benchmark: { running: false, status: "", result: null },
     settings: { ...defaultSettings },
-    preferences: structuredClone(defaultPreferences),
+    preferences,
   };
   const serverState = state;
   const listeners = new Set<() => void>();

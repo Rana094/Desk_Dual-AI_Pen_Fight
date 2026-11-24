@@ -19,10 +19,14 @@ export function readEnvironmentOverrides() {
       vs: {
         pen: process.env.NEXT_PUBLIC_GAME_DEFAULT_PEN,
         difficulty: process.env.NEXT_PUBLIC_GAME_DIFFICULTY,
+        goal: process.env.NEXT_PUBLIC_GAME_VS_GOAL,
       },
       train: {
         pen: process.env.NEXT_PUBLIC_GAME_DEFAULT_PEN,
         difficulty: process.env.NEXT_PUBLIC_GAME_DIFFICULTY,
+      },
+      ai: {
+        goal: process.env.NEXT_PUBLIC_GAME_AI_GOAL,
       },
     },
     matches: {

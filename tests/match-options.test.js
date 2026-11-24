@@ -32,10 +32,26 @@ test("human and AI use identical pen physics and contrasting colours for every s
           assert.equal(match.ai[1].level, difficulty);
           assert.deepEqual(match.humans, [true, false]);
           assert.deepEqual(match.names, ["Tester", "AI"]);
+          assert.equal(match.goal, mode === "train" ? 99 : 3);
         }
       }
     }
   }
+  const vsGoal = buildMatchOptions(
+    engine,
+    { name: "Tester" },
+    {
+      vs: { pen: "gel", colors: {}, difficulty: "beginner", goal: 5 },
+      train: {
+        pen: "gel",
+        colors: {},
+        difficulty: "beginner",
+        algorithm: "auto",
+      },
+    },
+    "vs",
+  );
+  assert.equal(vsGoal.goal, 5);
 });
 test("local multiplayer keeps independent selections and disambiguates equal names", () => {
   const match = buildMatchOptions(
@@ -94,4 +110,22 @@ test("AI Battle keeps selected algorithms and pens without aim noise or random m
   );
   assert.deepEqual(match.pens, ["gel", "ball"]);
   assert.equal(match.speed, 4);
+  assert.equal(match.lab, false);
+  assert.equal(match.goal, 5);
+  const customGoal = buildMatchOptions(
+    engine,
+    {},
+    {
+      ai: {
+        a: "dfs",
+        b: "mcts",
+        speed: 4,
+        goal: 3,
+        penA: { pen: "gel", colors: {} },
+        penB: { pen: "ball", colors: {} },
+      },
+    },
+    "aivai",
+  );
+  assert.equal(customGoal.goal, 3);
 });

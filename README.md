@@ -100,7 +100,7 @@ Play vs AI and Practice Lab give both players the same pen model with contrastin
 
 ## AI Lab and benchmarks
 
-Start Play vs AI, Practice Lab, or AI Battle, then select **Ai log** in the toolbar. Practice Lab and AI Battle open it automatically.
+Start Play vs AI, Practice Lab, or AI Battle, then select **Ai log** in the toolbar. Practice Lab opens it automatically.
 
 | Tab             | What it shows                                                                                                           |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------- |

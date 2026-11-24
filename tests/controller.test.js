@@ -186,6 +186,38 @@ test("AI Log stays closed in Two Players, including the L shortcut", (t) => {
   assert.equal(f.ui.get().labOpen, false);
 });
 
+test("AI Log starts closed in AI Battle, stays toggleable, and versus/AI goals apply", (t) => {
+  const f = controllerFixture(t);
+  const pressLogShortcut = () => {
+    const event = new Event("keydown", { cancelable: true });
+    Object.assign(event, { key: "l" });
+    f.window.dispatchEvent(event);
+  };
+
+  f.ui.set({
+    preferences: {
+      ...f.ui.get().preferences,
+      vs: { ...f.ui.get().preferences.vs, goal: 1 },
+      ai: { ...f.ui.get().preferences.ai, goal: 3 },
+    },
+  });
+
+  f.controller.start("aivai");
+  assert.equal(f.ui.get().labOpen, false);
+  assert.equal(f.ui.get().goal, 3);
+  pressLogShortcut();
+  assert.equal(f.ui.get().labOpen, true);
+  f.controller.toggleLab();
+  assert.equal(f.ui.get().labOpen, false);
+
+  f.controller.start("vs");
+  assert.equal(f.ui.get().labOpen, false);
+  assert.equal(f.ui.get().goal, 1);
+
+  f.controller.start("train");
+  assert.equal(f.ui.get().labOpen, true);
+});
+
 test("Follow resets when leaving or starting a match", (t) => {
   const f = controllerFixture(t);
   f.controller.start("pvp");
@@ -311,6 +343,7 @@ test("hint application plays once and cannot be used during the AI turn", async 
 test("live decisions do not overwrite the selected algorithm or AI score labels", async (t) => {
   const f = controllerFixture(t);
   f.controller.start("aivai");
+  f.controller.toggleLab();
   await f.advance(35);
   f.controller.changeAlgorithm("dfs");
   await f.advance(50);

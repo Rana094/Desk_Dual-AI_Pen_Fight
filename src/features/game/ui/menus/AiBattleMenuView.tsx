@@ -6,6 +6,7 @@ import {
 } from "@/features/game/runtime/GameProvider";
 import { PenSelector } from "@/features/pen/ui/PenSelector";
 import { AlgorithmSelect } from "@/features/game/ui/controls/AlgorithmSelect";
+import { GoalSelect } from "@/features/game/ui/controls/GoalSelect";
 import { MenuPage } from "./MenuPage";
 export function AiBattleMenuView() {
   const services = useGameServices();
@@ -55,19 +56,29 @@ export function AiBattleMenuView() {
           />
         </section>
       </div>
-      <label className="f">
-        Shot playback speed
-        <select
-          value={value.speed}
-          onChange={(event) => update({ speed: Number(event.target.value) })}
-        >
-          {CONFIG_LIMITS.speeds.map((speed) => (
-            <option key={speed} value={speed}>
-              {speed}×
-            </option>
-          ))}
-        </select>
-      </label>
+      <div className="two">
+        <label className="f">
+          First to
+          <GoalSelect
+            label="AI Battle match rounds"
+            value={value.goal}
+            onChange={(goal) => update({ goal })}
+          />
+        </label>
+        <label className="f">
+          Shot playback speed
+          <select
+            value={value.speed}
+            onChange={(event) => update({ speed: Number(event.target.value) })}
+          >
+            {CONFIG_LIMITS.speeds.map((speed) => (
+              <option key={speed} value={speed}>
+                {speed}×
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       <button
         className="mbtn primary"
         onClick={() => services.controller?.start("aivai")}
