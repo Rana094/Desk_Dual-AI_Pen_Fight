@@ -9,7 +9,7 @@ export const preferencesConfig: GamePreferences = {
     algorithm: "auto",
   },
   ai: {
-    a: "astar",
+    a: "minimax",
     b: "mcts",
     speed: 2,
     penA: { pen: "matador_hs", colors: {} },

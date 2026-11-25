@@ -371,7 +371,7 @@ export function createOriginalBenchTexture(
   // The cache belongs to one world and is released when that world is disposed.
   const cache = (R.benchTextureCanvases ||= new Map());
   const cacheKey = JSON.stringify([
-    "school-desk-inscriptions-v5-drawn-strokes",
+    "school-desk-inscriptions-v6-rana-and-sabbir",
     w,
     h,
     surface,
@@ -381,11 +381,11 @@ export function createOriginalBenchTexture(
   if (cache.has(cacheKey)) return cache.get(cacheKey);
   const carve = [
     {
-      t: "Sabbir was here",
-      x: 0.71,
+      t: "Rana and Sabbir was here",
+      x: 0.62,
       y: 0.85,
       r: -0.09,
-      s: 34,
+      s: 28,
       style: "signature",
       underline: true,
     },

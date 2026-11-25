@@ -162,7 +162,7 @@ test("coercible arrays in saved pen, difficulty, algorithm and colour fields can
     difficulty: "advanced",
     colors: {},
   });
-  assert.equal(ui.get().preferences.ai.a, "astar");
+  assert.equal(ui.get().preferences.ai.a, "minimax");
   assert.equal(ui.get().preferences.ai.b, "mcts");
   assert.equal(Object.hasOwn(ui.get().preferences.ai, "sa"), false);
   assert.equal(Object.hasOwn(ui.get().preferences.ai, "sb"), false);
@@ -266,7 +266,7 @@ test("persisted removed algorithms fall back to supported menu defaults", async 
   hydrateState(engine, ui);
   const preferences = ui.get().preferences;
   assert.equal(preferences.train.algorithm, "auto");
-  assert.equal(preferences.ai.a, "astar");
+  assert.equal(preferences.ai.a, "minimax");
   assert.equal(preferences.ai.b, "mcts");
 });
 
