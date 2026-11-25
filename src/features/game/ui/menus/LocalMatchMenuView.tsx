@@ -5,6 +5,7 @@ import {
   useGameServices,
 } from "@/features/game/runtime/GameProvider";
 import { PenSelector } from "@/features/pen/ui/PenSelector";
+import { GoalSelect } from "@/features/game/ui/controls/GoalSelect";
 import { MenuPage } from "./MenuPage";
 export function LocalMatchMenuView() {
   const services = useGameServices();
@@ -56,16 +57,11 @@ export function LocalMatchMenuView() {
       </div>
       <label className="f">
         First to
-        <select
+        <GoalSelect
+          label="Human vs Human match rounds"
           value={value.goal}
-          onChange={(event) => update({ goal: Number(event.target.value) })}
-        >
-          {CONFIG_LIMITS.goals.map((goal) => (
-            <option key={goal} value={goal}>
-              {goal} {goal === 1 ? "round" : "rounds"}
-            </option>
-          ))}
-        </select>
+          onChange={(goal) => update({ goal })}
+        />
       </label>
       <button
         className="mbtn primary"

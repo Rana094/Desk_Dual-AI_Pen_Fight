@@ -60,6 +60,9 @@ export function hydrateState(engine, ui) {
       ? value
       : fallback;
   }
+  function goal(value, fallback) {
+    return CONFIG_LIMITS.goals.includes(value) ? value : fallback;
+  }
   for (const key of ["vs", "train"]) {
     const old = preferences[key],
       value = saved?.[key] || {
@@ -72,6 +75,7 @@ export function hydrateState(engine, ui) {
       difficulty: difficulty(value.difficulty, old.difficulty),
     };
   }
+  preferences.vs.goal = goal(saved?.vs?.goal, current.preferences.vs.goal);
   preferences.train.algorithm =
     saved?.train?.algorithm === "auto"
       ? "auto"
@@ -84,6 +88,7 @@ export function hydrateState(engine, ui) {
     speed: CONFIG_LIMITS.speeds.includes(ai.speed)
       ? ai.speed
       : preferences.ai.speed,
+    goal: goal(ai.goal, preferences.ai.goal),
     penA: pen(ai.penA, preferences.ai.penA),
     penB: pen(ai.penB, preferences.ai.penB),
   };
@@ -96,9 +101,7 @@ export function hydrateState(engine, ui) {
       0,
       CONFIG_LIMITS.nameLength,
     ),
-    goal: CONFIG_LIMITS.goals.includes(pvp.goal)
-      ? pvp.goal
-      : preferences.pvp.goal,
+    goal: goal(pvp.goal, preferences.pvp.goal),
     pen1: pen(pvp.pen1, preferences.pvp.pen1),
     pen2: pen(pvp.pen2, preferences.pvp.pen2),
   };

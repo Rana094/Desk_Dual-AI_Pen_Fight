@@ -18,7 +18,7 @@ export const configRules: ConfigRules = {
     "preferences.ai.b": algorithms,
     "preferences.train.algorithm": ["auto", ...algorithms],
     "preferences.ai.speed": CONFIG_LIMITS.speeds,
-    "preferences.pvp.goal": CONFIG_LIMITS.goals,
+    "preferences.*.goal": CONFIG_LIMITS.goals,
     "ai.defaultAlgorithm": algorithms,
     "ai.benchmark.algorithmA": algorithms,
     "ai.benchmark.algorithmB": algorithms,

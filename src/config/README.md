@@ -5,7 +5,7 @@
 | Section             | Configurable defaults                                                                                                                                 |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `settings`          | Player name, volume, ambience, quality, table surface, follow camera, replays, slow motion, FPS, aim guide, friction, realism                         |
-| `preferences`       | Pens and custom colours for every mode, versus/training difficulty, training algorithm, AI battle algorithms/speed, local player names and match goal |
+| `preferences`       | Pens and custom colours for every mode, versus/training difficulty, training algorithm, AI battle algorithms/speed, local player names and versus/AI battle/local match goals |
 | `matches`           | Versus/training/AI battle goals, opponent display name                                                                                                |
 | `camera`            | Four presets, portrait framing, default zoom/pin state, orbit radius, horizontal/vertical desk fit                                                    |
 | `input`             | Pen safety radii, drag threshold, rotation/tilt sensitivity, pinch threshold, trackpad zoom sensitivity                                               |
